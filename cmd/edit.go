@@ -7,9 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"godo/internal/taskstore"
+	"godo/internal/ui"
 	"os"
 	"os/exec"
-	"strconv"
 
 	"github.com/spf13/cobra"
 )
@@ -19,30 +19,10 @@ var editCmd = &cobra.Command{
 	Use:   "edit",
 	Short: "Edit a task in your preferred editor",
 	Long:  `Opens your configured editor (default: vi) to edit the task title and description`,
-	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		taskID, err := strconv.Atoi(args[0])
+		taskId, selectedTask, err := ui.GetTaskID(args)
 		if err != nil {
-			fmt.Println("Invalid task ID")
-			return
-		}
-
-		tasks, err := taskstore.GetTasks()
-		if err != nil {
-			fmt.Println("Error getting tasks:", err)
-			return
-		}
-
-		var task *taskstore.Task
-		for i := range tasks {
-			if tasks[i].ID == taskID {
-				task = &tasks[i]
-				break
-			}
-		}
-
-		if task == nil {
-			fmt.Printf("Task with ID %d not found\n", taskID)
+			fmt.Println("Error:", err)
 			return
 		}
 
@@ -53,8 +33,8 @@ var editCmd = &cobra.Command{
 		}
 
 		editable := editableTask{
-			Title:       task.Title,
-			Description: task.Description,
+			Title:       selectedTask.Title,
+			Description: selectedTask.Description,
 		}
 
 		tmpFile, err := os.CreateTemp("", "task-*.json")
@@ -122,7 +102,7 @@ var editCmd = &cobra.Command{
 			"description": updated.Description,
 		}
 
-		if err := taskstore.UpdateTask(taskID, updates); err != nil {
+		if err := taskstore.UpdateTask(taskId, updates); err != nil {
 			fmt.Println("Error updating task:", err)
 			return
 		}

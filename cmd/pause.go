@@ -6,7 +6,7 @@ package cmd
 import (
 	"fmt"
 	"godo/internal/taskstore"
-	"strconv"
+	"godo/internal/ui"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -17,51 +17,35 @@ var pauseCmd = &cobra.Command{
 	Use:   "pause",
 	Short: "Pause the current task",
 	Long:  `Pause the currently running task and save the elapsed time`,
-	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		id := args[0]
-
-		// Get task ID as int
-		taskID, err := strconv.Atoi(id)
+		taskID, selectedTask, err := ui.GetTaskID(args)
 		if err != nil {
-			fmt.Println("Invalid task ID")
+			fmt.Println("Error:", err)
 			return
 		}
 
-		tasks, err := taskstore.GetTasks()
-		if err != nil {
-			fmt.Println("Error getting tasks:", err)
+		if selectedTask.Status != taskstore.StatusInProgress {
+			fmt.Println("Task is not in progress")
 			return
 		}
 
-		for _, task := range tasks {
-			if task.ID == taskID {
-				if task.Status != taskstore.StatusInProgress {
-					fmt.Println("Task is not in progress")
-					return
-				}
+		// Calculate total time
+		elapsed := time.Since(*selectedTask.StartedAt)
+		totalTime := selectedTask.TotalTime + elapsed
 
-				// Calculate total time
-				elapsed := time.Since(*task.StartedAt)
-				totalTime := task.TotalTime + elapsed
-
-				updates := map[string]any{
-					"status":     taskstore.StatusPaused,
-					"total_time": totalTime,
-					"started_at": nil,
-				}
-
-				if err := taskstore.UpdateTask(taskID, updates); err != nil {
-					fmt.Println("Error updating task:", err)
-					return
-				}
-
-				fmt.Println("Task paused. Total time:", totalTime.Round(time.Second))
-				return
-			}
+		updates := map[string]any{
+			"status":     taskstore.StatusPaused,
+			"total_time": totalTime,
+			"started_at": nil,
 		}
 
-		fmt.Println("Task not found")
+		if err := taskstore.UpdateTask(taskID, updates); err != nil {
+			fmt.Println("Error updating task:", err)
+			return
+		}
+
+		fmt.Println("Task paused. Total time:", totalTime.Round(time.Second))
+
 	},
 }
 

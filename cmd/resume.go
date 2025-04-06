@@ -6,7 +6,7 @@ package cmd
 import (
 	"fmt"
 	"godo/internal/taskstore"
-	"strconv"
+	"godo/internal/ui"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -17,44 +17,29 @@ var resumeCmd = &cobra.Command{
 	Use:   "resume",
 	Short: "Resume a paused task",
 	Long:  `Resume a previously paused task by setting its status back to in-progress and updating the start time.`,
-	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		id := args[0]
-
-		intId, err := strconv.Atoi(id)
-		if err != nil {
-			fmt.Println("Invalid task ID")
-			return
-		}
-
-		tasks, err := taskstore.GetTasks()
+		_, selectedTask, err := ui.GetTaskID(args)
 		if err != nil {
 			fmt.Println("Error:", err)
 			return
 		}
 
-		for _, task := range tasks {
-			if task.ID == intId {
-				if task.Status != taskstore.StatusPaused {
-					fmt.Println("Task must be paused to resume")
-					return
-				}
-
-				now := time.Now()
-				updates := map[string]any{
-					"status":     taskstore.StatusInProgress,
-					"started_at": now,
-				}
-
-				err := taskstore.UpdateTask(task.ID, updates)
-				if err != nil {
-					fmt.Println("Error:", err)
-					return
-				}
-				fmt.Println("Task resumed")
-				return
-			}
+		if selectedTask.Status != taskstore.StatusPaused {
+			fmt.Println("Task must be paused to resume")
+			return
 		}
+
+		now := time.Now()
+		updates := map[string]any{
+			"status":     taskstore.StatusInProgress,
+			"started_at": now,
+		}
+
+		if err := taskstore.UpdateTask(selectedTask.ID, updates); err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
+		fmt.Println("Task resumed")
 
 		fmt.Println("Task not found")
 	},

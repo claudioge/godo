@@ -114,7 +114,6 @@ func UpdateTask(id int, updates map[string]any) error {
 		return err
 	}
 
-	fmt.Printf("updating task %d, to %s", id, updates["status"])
 	for i, task := range store.Tasks {
 		if task.ID == id {
 			if title, ok := updates["title"].(string); ok {
@@ -124,11 +123,9 @@ func UpdateTask(id int, updates map[string]any) error {
 				store.Tasks[i].Description = description
 			}
 			if status, ok := updates["status"].(TaskStatus); ok {
-				fmt.Println("updating status")
 				store.Tasks[i].Status = status
 			}
 			if startedAt, ok := updates["started_at"].(time.Time); ok {
-				fmt.Println("updating started_at")
 				store.Tasks[i].StartedAt = &startedAt
 			}
 
