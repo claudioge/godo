@@ -52,7 +52,7 @@ to quickly create a Cobra application.`,
 			}
 			timeInfo := ""
 			if task.Status == taskstore.StatusInProgress && task.StartedAt != nil {
-				timeInfo = fmt.Sprintf("| Time Spent: %s", totalTime)
+				timeInfo = fmt.Sprintf(" | Time Spent: %s", totalTime)
 			}
 			fmt.Printf("%s #%d: %s%s\n", statusEmoji, task.ID, task.Title, timeInfo)
 		}
