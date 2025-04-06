@@ -1,11 +1,13 @@
 /*
 Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
 import (
 	"fmt"
+	"godo/internal/taskstore"
+	"strconv"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -13,14 +15,44 @@ import (
 // startCmd represents the start command
 var startCmd = &cobra.Command{
 	Use:   "start",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "Start a task",
+	Long:  ``,
 	Run: func(cmd *cobra.Command, args []string) {
+		id := args[0]
+
+		intId, err := strconv.Atoi(id)
+		if err != nil {
+			fmt.Println("Invalid task ID")
+			return
+		}
+
+		tasks, err := taskstore.GetTasks()
+		if err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
+
+		for _, task := range tasks {
+			if task.ID == intId {
+				if task.Status == taskstore.StatusInProgress {
+					fmt.Println("Task is already in progress")
+					return
+				}
+				now := time.Now()
+				updates := map[string]any{
+					"status":     taskstore.StatusInProgress,
+					"started_at": now,
+				}
+				err := taskstore.UpdateTask(task.ID, updates)
+				if err != nil {
+					fmt.Println("Error:", err)
+					return
+				}
+				fmt.Println("Task started")
+				return
+			}
+		}
+
 		fmt.Println("start called")
 	},
 }

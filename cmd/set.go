@@ -1,11 +1,12 @@
 /*
 Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
 import (
 	"fmt"
+	"godo/internal/taskstore"
+	"strconv"
 
 	"github.com/spf13/cobra"
 )
@@ -13,15 +14,39 @@ import (
 // setCmd represents the set command
 var setCmd = &cobra.Command{
 	Use:   "set",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "Set satus of task",
+	Long: `Update the status of a task
+  Valid options are:
+    - "todo"
+	- "in-progress"
+	- "done"
+	- "paused"
+  `,
+	Args: cobra.MinimumNArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("set called")
+		id := args[0]
+		status := args[1]
+
+		fmt.Printf("In set, args: %s, %s", id, status)
+
+		intId, err := strconv.Atoi(id)
+		if err != nil {
+			fmt.Println("Invalid ID")
+			return
+		}
+
+		// check if status is a valid TaskStatus value
+		validStatus, err := taskstore.GetTaskStatus(status)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		updates := map[string]any{
+			"status": validStatus,
+		}
+
+		taskstore.UpdateTask(intId, updates)
 	},
 }
 

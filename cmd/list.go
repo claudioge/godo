@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -35,11 +36,13 @@ to quickly create a Cobra application.`,
 		}
 		for _, task := range tasks {
 			var statusEmoji string
+			var totalTime string
 			switch task.Status {
 			case taskstore.StatusTodo:
 				statusEmoji = "⭕"
 			case taskstore.StatusInProgress:
 				statusEmoji = "🔄"
+				totalTime = time.Now().Sub(*task.StartedAt).String()
 			case taskstore.StatusDone:
 				statusEmoji = "✅"
 			case taskstore.StatusPaused:
@@ -47,7 +50,11 @@ to quickly create a Cobra application.`,
 			default:
 				statusEmoji = "❓"
 			}
-			fmt.Printf("%s #%d: %s\n", statusEmoji, task.ID, task.Title)
+			timeInfo := ""
+			if task.Status == taskstore.StatusInProgress && task.StartedAt != nil {
+				timeInfo = fmt.Sprintf("| Time Spent: %s", totalTime)
+			}
+			fmt.Printf("%s #%d: %s%s\n", statusEmoji, task.ID, task.Title, timeInfo)
 		}
 	},
 }
