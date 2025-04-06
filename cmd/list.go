@@ -5,7 +5,6 @@ package cmd
 
 import (
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/fatih/color"
@@ -22,83 +21,54 @@ var listCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		tasks, err := taskstore.GetTasks()
 		if err != nil {
-			fmt.Printf("\n❌ %s Error listing tasks: %v\n", color.RedString("ERROR:"), err)
+			fmt.Printf("❌ %s Error listing tasks: %v\n", color.RedString("ERROR:"), err)
 			return
 		}
 
-		fmt.Printf("\n%s %s\n", "📋", color.BlueString("Your Tasks"))
-		fmt.Printf("%s\n", color.HiBlackString("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+		fmt.Printf("%s %s\n", "📋", color.BlueString("Your Tasks"))
 
 		if len(tasks) == 0 {
-			fmt.Printf("\n📭 %s\n\n", color.YellowString("No tasks found!"))
+			fmt.Printf("📭 %s\n", color.YellowString("No tasks found!"))
 			return
 		}
 
-		// Sort tasks by status
-		statusOrder := map[taskstore.TaskStatus]int{
-			taskstore.StatusInProgress: 1,
-			taskstore.StatusTodo:       2,
-			taskstore.StatusPaused:     3,
-			taskstore.StatusDone:       4,
+		// Define status sections in order
+		statusSections := []struct {
+			status taskstore.TaskStatus
+			emoji  string
+			color  func(string, ...any) string
+		}{
+			{taskstore.StatusInProgress, "🔄", color.BlueString},
+			{taskstore.StatusTodo, "⭕", color.WhiteString},
+			{taskstore.StatusPaused, "⏸️", color.YellowString},
+			{taskstore.StatusDone, "✅", color.GreenString},
 		}
 
-		sortedTasks := make([]taskstore.Task, len(tasks))
-		copy(sortedTasks, tasks)
-		sort.Slice(sortedTasks, func(i, j int) bool {
-			return statusOrder[sortedTasks[i].Status] < statusOrder[sortedTasks[j].Status]
-		})
+		// Group tasks by status
+		tasksByStatus := make(map[taskstore.TaskStatus][]taskstore.Task)
+		for _, task := range tasks {
+			tasksByStatus[task.Status] = append(tasksByStatus[task.Status], task)
+		}
 
-		for _, task := range sortedTasks {
-			var statusEmoji, statusColor string
-			var totalTime time.Duration
+		// Print each section
+		for _, section := range statusSections {
+			if tasks := tasksByStatus[section.status]; len(tasks) > 0 {
+				fmt.Printf("\n%s %s\n", section.emoji, color.New(color.Bold).SprintFunc()(section.color(string(section.status))))
 
-			switch task.Status {
-			case taskstore.StatusTodo:
-				statusEmoji = "⭕"
-				statusColor = color.WhiteString(string(task.Status))
-			case taskstore.StatusInProgress:
-				statusEmoji = "🔄"
-				statusColor = color.BlueString(string(task.Status))
-				if task.StartedAt != nil {
-					totalTime = time.Since(*task.StartedAt)
+				for _, task := range tasks {
+					timeInfo := ""
+					if task.Status == taskstore.StatusInProgress && task.StartedAt != nil {
+						timeInfo = color.CyanString(" ⏱ %s", formatDuration(time.Since(*task.StartedAt)))
+					} else if task.TotalTime > 0 {
+						timeInfo = color.HiBlackString(" ⌛ %s", formatDuration(task.TotalTime))
+					}
+
+					fmt.Printf("  #%d %s%s\n", task.ID, color.HiWhiteString(task.Title), timeInfo)
+					if task.Description != "" {
+						fmt.Printf("     %s\n", color.HiBlackString(task.Description))
+					}
 				}
-			case taskstore.StatusDone:
-				statusEmoji = "✅"
-				statusColor = color.GreenString(string(task.Status))
-			case taskstore.StatusPaused:
-				statusEmoji = "⏸️"
-				statusColor = color.YellowString(string(task.Status))
-			default:
-				statusEmoji = "❓"
-				statusColor = color.RedString("unknown")
 			}
-
-			// Format ID
-			idStr := color.HiBlackString(fmt.Sprintf("#%d", task.ID))
-
-			// Format title with optional description
-			titleStr := color.HiWhiteString(task.Title)
-			if task.Description != "" {
-				titleStr += color.HiBlackString(" - " + task.Description)
-			}
-
-			// Format time info
-			timeInfo := ""
-			if task.Status == taskstore.StatusInProgress && task.StartedAt != nil {
-				timeInfo = color.CyanString(" ⏱ %s", formatDuration(totalTime))
-			} else if task.TotalTime > 0 {
-				timeInfo = color.HiBlackString(" ⌛ %s", formatDuration(task.TotalTime))
-			}
-
-			// Print the task line
-			fmt.Printf("%s %s [%s]%s\n   %s %s\n",
-				statusEmoji,
-				idStr,
-				statusColor,
-				timeInfo,
-				"└─",
-				titleStr,
-			)
 		}
 		fmt.Println()
 	},
