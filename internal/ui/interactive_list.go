@@ -17,18 +17,21 @@ const (
 	ModeNormal Mode = iota
 	ModeEdit
 	ModeEditDescription
+	ModeAddTask
 )
 
 type InteractiveList struct {
-	tasks        []taskstore.Task
-	cursor       int
-	mode         Mode
-	editBuffer   string
-	message      string
-	messageTimer time.Time
-	height       int
-	width        int
-	selectedTask *taskstore.Task
+	tasks              []taskstore.Task
+	cursor             int
+	mode               Mode
+	editBuffer         string
+	message            string
+	messageTimer       time.Time
+	height             int
+	width              int
+	selectedTask       *taskstore.Task
+	newTaskTitle       string
+	newTaskDescription string
 }
 
 type tasksReloadedMsg struct {
@@ -111,14 +114,25 @@ func (m *InteractiveList) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleEditMode(msg)
 	case ModeEditDescription:
 		return m.handleEditDescriptionMode(msg)
+	case ModeAddTask:
+		return m.handleAddTaskMode(msg)
+	default:
+		return m, nil
 	}
-	return m, nil
 }
 
 func (m *InteractiveList) handleNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c", "q":
 		return m, tea.Quit
+
+	case "a":
+		// Enter add task mode
+		m.mode = ModeAddTask
+		m.editBuffer = ""
+		m.newTaskTitle = ""
+		m.newTaskDescription = ""
+		return m, nil
 
 	// Vim-like navigation
 	case "j", "down":
@@ -253,6 +267,11 @@ func (m *InteractiveList) handleEditDescriptionMode(msg tea.KeyMsg) (tea.Model, 
 }
 
 func (m *InteractiveList) View() string {
+	// Handle add task mode separately
+	if m.mode == ModeAddTask {
+		return m.renderAddTaskMode()
+	}
+
 	if len(m.tasks) == 0 {
 		return m.renderEmpty()
 	}
@@ -312,7 +331,7 @@ func (m *InteractiveList) View() string {
 	// Help text
 	helpText := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("8")).
-		Render("\nj/k: move • t/p/d/s: change status • e: edit title • o: edit desc (Ctrl+S) • x: delete • ?: help • q: quit")
+		Render("\nj/k: move • a: add task • t/p/d/s: change status • e: edit title • o: edit desc (Ctrl+S) • x: delete • q: quit")
 	sections = append(sections, helpText)
 
 	// Message
@@ -330,7 +349,7 @@ func (m *InteractiveList) renderEmpty() string {
 	emptyStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("3")).
 		Bold(true)
-	return emptyStyle.Render("📭 No tasks found! Press 'q' to quit.")
+	return emptyStyle.Render("📭 No tasks found! Press 'a' to add a task or 'q' to quit.")
 }
 
 func (m *InteractiveList) renderTask(task taskstore.Task, selected bool) string {
@@ -683,17 +702,187 @@ func formatDuration(d time.Duration) string {
 	d = d.Round(time.Second)
 	h := d / time.Hour
 	d -= h * time.Hour
-	min := d / time.Minute
-	d -= min * time.Minute
+	m := d / time.Minute
+	d -= m * time.Minute
 	s := d / time.Second
 
 	if h > 0 {
-		return fmt.Sprintf("%dh %dm", h, min)
+		return fmt.Sprintf("%dh %dm", h, m)
 	}
-	if min > 0 {
-		return fmt.Sprintf("%dm %ds", min, s)
+	if m > 0 {
+		return fmt.Sprintf("%dm %ds", m, s)
 	}
 	return fmt.Sprintf("%ds", s)
+}
+
+// handleAddTaskMode handles keyboard input when adding a new task
+func (m *InteractiveList) handleAddTaskMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		// Cancel adding task
+		m.mode = ModeNormal
+		m.newTaskTitle = ""
+		m.newTaskDescription = ""
+		m.editBuffer = ""
+		return m, nil
+
+	case "tab":
+		// Switch between title and description fields
+		if m.newTaskTitle == "" {
+			// Currently editing title, switch to description
+			m.newTaskTitle = m.editBuffer
+			m.editBuffer = m.newTaskDescription
+		} else {
+			// Currently editing description, switch to title
+			m.newTaskDescription = m.editBuffer
+			m.editBuffer = m.newTaskTitle
+			m.newTaskTitle = ""
+		}
+		return m, nil
+
+	case "enter":
+		if m.newTaskTitle == "" {
+			// Still editing title, move to description
+			m.newTaskTitle = m.editBuffer
+			m.editBuffer = ""
+			return m, nil
+		} else {
+			// Save the new task
+			m.newTaskDescription = m.editBuffer
+			if m.newTaskTitle != "" {
+				err := taskstore.AddTask(m.newTaskTitle, m.newTaskDescription)
+				if err != nil {
+					m.setMessage(fmt.Sprintf("Error adding task: %v", err))
+				} else {
+					m.setMessage("Task added successfully")
+					m.mode = ModeNormal
+					m.newTaskTitle = ""
+					m.newTaskDescription = ""
+					m.editBuffer = ""
+					return m, m.reloadTasks()
+				}
+			}
+			return m, nil
+		}
+
+	case "backspace":
+		if len(m.editBuffer) > 0 {
+			m.editBuffer = m.editBuffer[:len(m.editBuffer)-1]
+		}
+		return m, nil
+
+	default:
+		// Add character to buffer
+		if len(msg.String()) == 1 {
+			m.editBuffer += msg.String()
+		}
+		return m, nil
+	}
+}
+
+// renderAddTaskMode renders the view for adding a new task
+func (m *InteractiveList) renderAddTaskMode() string {
+	var b strings.Builder
+
+	// Header
+	header := " ➕ Add New Task "
+	headerStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("40")).
+		Background(lipgloss.Color("235")).
+		Width(m.width).
+		Align(lipgloss.Center)
+	b.WriteString(headerStyle.Render(header))
+	b.WriteString("\n\n")
+
+	// Title field
+	titleLabel := "Title: "
+	titleStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("39")).
+		Bold(true).
+		MarginLeft(2)
+
+	b.WriteString(titleStyle.Render(titleLabel))
+
+	titleContent := m.editBuffer
+	if m.newTaskTitle != "" {
+		titleContent = m.newTaskTitle
+	}
+
+	titleBoxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(func() string {
+			if m.newTaskTitle == "" {
+				return "39" // Active field
+			}
+			return "240"
+		}())).
+		Width(m.width-12).
+		Padding(0, 1)
+
+	if m.newTaskTitle == "" {
+		titleContent += "█" // Cursor
+	}
+
+	b.WriteString(titleBoxStyle.Render(titleContent))
+	b.WriteString("\n\n")
+
+	// Description field
+	descLabel := "Description (optional): "
+	descStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("39")).
+		Bold(true).
+		MarginLeft(2)
+
+	b.WriteString(descStyle.Render(descLabel))
+
+	descContent := m.newTaskDescription
+	if m.newTaskTitle != "" {
+		descContent = m.editBuffer
+		if descContent == "" {
+			descContent = " "
+		}
+	}
+
+	descBoxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(func() string {
+			if m.newTaskTitle != "" {
+				return "39" // Active field
+			}
+			return "240"
+		}())).
+		Width(m.width-12).
+		Height(5).
+		Padding(0, 1)
+
+	if m.newTaskTitle != "" {
+		lines := strings.Split(descContent, "\n")
+		if len(lines) > 0 {
+			lines[len(lines)-1] += "█" // Cursor
+		}
+		descContent = strings.Join(lines, "\n")
+	}
+
+	b.WriteString(descBoxStyle.Render(descContent))
+	b.WriteString("\n\n")
+
+	// Help text
+	helpText := " tab: switch fields | enter: next/save | esc: cancel "
+	helpStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color("235")).
+		Foreground(lipgloss.Color("240")).
+		Width(m.width).
+		Align(lipgloss.Center)
+
+	// Position help at bottom
+	currentLines := strings.Count(b.String(), "\n") + 1
+	for i := currentLines; i < m.height-1; i++ {
+		b.WriteString("\n")
+	}
+	b.WriteString(helpStyle.Render(helpText))
+
+	return b.String()
 }
 
 // RunInteractiveList starts the interactive list TUI

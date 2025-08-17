@@ -32,9 +32,9 @@ Use 'godo help' to see available commands.`,
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
-	// Set list command as default
+	// Set interactive list as default when no arguments provided
 	if len(os.Args) == 1 {
-		os.Args = append(os.Args, "list")
+		os.Args = append(os.Args, "list", "-i")
 	}
 
 	err := rootCmd.Execute()
