@@ -307,6 +307,8 @@ func (m *InteractiveList) View() string {
 	}
 
 	currentIndex := 0
+	var currentTask taskstore.Task
+
 	for _, section := range statusSections {
 		if tasks := tasksByStatus[section.status]; len(tasks) > 0 {
 			sectionTitle := lipgloss.NewStyle().
@@ -318,6 +320,9 @@ func (m *InteractiveList) View() string {
 			for _, task := range tasks {
 				orderedTasks = append(orderedTasks, task)
 				sections = append(sections, m.renderTask(task, currentIndex == m.cursor))
+				if currentIndex == m.cursor {
+					currentTask = task
+				}
 				currentIndex++
 			}
 		}
@@ -332,7 +337,10 @@ func (m *InteractiveList) View() string {
 	helpText := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("8")).
 		Render("\nj/k: move • a: add task • t/p/d/s: change status • e: edit title • o: edit desc (Ctrl+S) • x: delete • q: quit")
-	sections = append(sections, helpText)
+
+	descriptionSection := m.renderDescription(currentTask, currentIndex == m.cursor)
+
+	sections = append(sections, helpText, descriptionSection)
 
 	// Message
 	if m.message != "" && time.Since(m.messageTimer) < 3*time.Second {
@@ -342,7 +350,13 @@ func (m *InteractiveList) View() string {
 		sections = append(sections, msgStyle.Render(m.message))
 	}
 
-	return strings.Join(sections, "\n")
+	leftSide := strings.Join(sections, "\n")
+
+	var split []string
+	split = append(split, leftSide)
+	split = append(split, descriptionSection)
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, split...)
 }
 
 func (m *InteractiveList) renderEmpty() string {
@@ -352,31 +366,9 @@ func (m *InteractiveList) renderEmpty() string {
 	return emptyStyle.Render("📭 No tasks found! Press 'a' to add a task or 'q' to quit.")
 }
 
-func (m *InteractiveList) renderTask(task taskstore.Task, selected bool) string {
-	var style lipgloss.Style
-	if selected {
-		style = lipgloss.NewStyle().
-			Background(lipgloss.Color("8")).
-			Foreground(lipgloss.Color("0")).
-			Bold(true)
-	} else {
-		style = lipgloss.NewStyle()
-	}
-
-	timeInfo := ""
-	if task.Status == taskstore.StatusInProgress && task.StartedAt != nil {
-		timeInfo = fmt.Sprintf(" ⏱ %s", formatDuration(time.Since(*task.StartedAt)))
-	} else if task.TotalTime > 0 {
-		timeInfo = fmt.Sprintf(" ⌛ %s", formatDuration(task.TotalTime))
-	}
-
-	taskLine := fmt.Sprintf("  #%d %s%s", task.ID, task.Title, timeInfo)
-	if selected {
-		taskLine = "► " + taskLine[2:]
-	}
-
-	result := style.Render(taskLine)
-
+func (m *InteractiveList) renderDescription(task taskstore.Task, selected bool) string {
+	style := lipgloss.NewStyle()
+	result := style.Render("Details:")
 	if task.Description != "" {
 		descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 		if selected {
@@ -399,6 +391,58 @@ func (m *InteractiveList) renderTask(task taskstore.Task, selected bool) string 
 			}
 		}
 	}
+	return result
+
+}
+
+func (m *InteractiveList) renderTask(task taskstore.Task, selected bool) string {
+	var style lipgloss.Style
+	if selected {
+		style = lipgloss.NewStyle().
+			BorderStyle(lipgloss.RoundedBorder()).
+			Bold(true)
+	} else {
+		style = lipgloss.NewStyle()
+	}
+
+	timeInfo := ""
+	if task.Status == taskstore.StatusInProgress && task.StartedAt != nil {
+		timeInfo = fmt.Sprintf(" ⏱ %s", formatDuration(time.Since(*task.StartedAt)))
+	} else if task.TotalTime > 0 {
+		timeInfo = fmt.Sprintf(" ⌛ %s", formatDuration(task.TotalTime))
+	}
+
+	taskLine := fmt.Sprintf("  #%d %s%s", task.ID, task.Title, timeInfo)
+	if selected {
+		taskLine = "► " + taskLine[2:]
+	}
+
+	result := style.Render(taskLine)
+
+	/*
+		if task.Description != "" {
+			descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+			if selected {
+				descStyle = descStyle.Background(lipgloss.Color("8")).Foreground(lipgloss.Color("7"))
+			}
+
+			// Handle multi-line descriptions with better formatting
+			descLines := strings.Split(task.Description, "\n")
+			for i, line := range descLines {
+				trimmedLine := strings.TrimSpace(line)
+				if trimmedLine != "" {
+					prefix := "     "
+					if i > 0 {
+						prefix = "     │ " // Visual continuation for multi-line
+					}
+					result += "\n" + descStyle.Render(fmt.Sprintf("%s%s", prefix, trimmedLine))
+				} else if i > 0 && i < len(descLines)-1 {
+					// Show empty lines in multi-line descriptions
+					result += "\n" + descStyle.Render("     │")
+				}
+			}
+		}
+	*/
 
 	return result
 }
