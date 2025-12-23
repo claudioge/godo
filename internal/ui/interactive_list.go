@@ -340,7 +340,7 @@ func (m *InteractiveList) View() string {
 
 	descriptionSection := m.renderDescription(currentTask, currentIndex == m.cursor)
 
-	sections = append(sections, helpText, descriptionSection)
+	sections = append(sections, helpText)
 
 	// Message
 	if m.message != "" && time.Since(m.messageTimer) < 3*time.Second {
