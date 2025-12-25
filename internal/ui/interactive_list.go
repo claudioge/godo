@@ -333,30 +333,44 @@ func (m *InteractiveList) View() string {
 		sections = append(sections, m.renderEditMode())
 	}
 
-	// Help text
-	helpText := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("8")).
-		Render("\nj/k: move • a: add task • t/p/d/s: change status • e: edit title • o: edit desc (Ctrl+S) • x: delete • q: quit")
-
 	descriptionSection := m.renderDescription(currentTask, currentIndex == m.cursor)
 
-	sections = append(sections, helpText)
+	leftSide := strings.Join(sections, "\n")
+
+	leftSideWidth := 40
+	leftSideStyle := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Width(leftSideWidth).Height(m.height - 4)
+	leftSideWithBorder := leftSideStyle.Render(leftSide)
+
+	descriptionWidth := m.width - leftSideWidth - 8
+	if descriptionWidth < 20 {
+		descriptionWidth = 20
+	}
+	descriptionStyle := lipgloss.NewStyle().Padding(1, 0, 0, 2).Width(descriptionWidth)
+	descriptionWithWidth := descriptionStyle.Render(descriptionSection)
+
+	// Combine left and right panels
+	mainContent := lipgloss.JoinHorizontal(lipgloss.Top, leftSideWithBorder, descriptionWithWidth)
+
+	// Build footer with help text and message
+	var footerSections []string
+
+	helpText := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("8")).
+		Render("a: add task • t/p/d/s: change status • e: edit title • o: edit desc (Ctrl+S) • x: delete • q: quit")
+	footerSections = append(footerSections, helpText)
 
 	// Message
 	if m.message != "" && time.Since(m.messageTimer) < 3*time.Second {
 		msgStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("2")).
 			Bold(true)
-		sections = append(sections, msgStyle.Render(m.message))
+		footerSections = append(footerSections, msgStyle.Render(m.message))
 	}
 
-	leftSide := strings.Join(sections, "\n")
+	footer := strings.Join(footerSections, "\n")
 
-	var split []string
-	split = append(split, leftSide)
-	split = append(split, descriptionSection)
-
-	return lipgloss.JoinHorizontal(lipgloss.Top, split...)
+	// Combine main content and footer vertically
+	return lipgloss.JoinVertical(lipgloss.Left, mainContent, footer)
 }
 
 func (m *InteractiveList) renderEmpty() string {
@@ -370,24 +384,17 @@ func (m *InteractiveList) renderDescription(task taskstore.Task, selected bool) 
 	style := lipgloss.NewStyle()
 	result := style.Render("Details:")
 	if task.Description != "" {
-		descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-		if selected {
-			descStyle = descStyle.Background(lipgloss.Color("8")).Foreground(lipgloss.Color("7"))
-		}
+		descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff"))
 
 		// Handle multi-line descriptions with better formatting
 		descLines := strings.Split(task.Description, "\n")
 		for i, line := range descLines {
 			trimmedLine := strings.TrimSpace(line)
 			if trimmedLine != "" {
-				prefix := "     "
-				if i > 0 {
-					prefix = "     │ " // Visual continuation for multi-line
-				}
-				result += "\n" + descStyle.Render(fmt.Sprintf("%s%s", prefix, trimmedLine))
+				result += "\n" + descStyle.Render(fmt.Sprintf("%s", trimmedLine))
 			} else if i > 0 && i < len(descLines)-1 {
 				// Show empty lines in multi-line descriptions
-				result += "\n" + descStyle.Render("     │")
+				result += "\n" + descStyle.Render("")
 			}
 		}
 	}
@@ -399,7 +406,6 @@ func (m *InteractiveList) renderTask(task taskstore.Task, selected bool) string 
 	var style lipgloss.Style
 	if selected {
 		style = lipgloss.NewStyle().
-			BorderStyle(lipgloss.RoundedBorder()).
 			Bold(true)
 	} else {
 		style = lipgloss.NewStyle()
@@ -418,31 +424,6 @@ func (m *InteractiveList) renderTask(task taskstore.Task, selected bool) string 
 	}
 
 	result := style.Render(taskLine)
-
-	/*
-		if task.Description != "" {
-			descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-			if selected {
-				descStyle = descStyle.Background(lipgloss.Color("8")).Foreground(lipgloss.Color("7"))
-			}
-
-			// Handle multi-line descriptions with better formatting
-			descLines := strings.Split(task.Description, "\n")
-			for i, line := range descLines {
-				trimmedLine := strings.TrimSpace(line)
-				if trimmedLine != "" {
-					prefix := "     "
-					if i > 0 {
-						prefix = "     │ " // Visual continuation for multi-line
-					}
-					result += "\n" + descStyle.Render(fmt.Sprintf("%s%s", prefix, trimmedLine))
-				} else if i > 0 && i < len(descLines)-1 {
-					// Show empty lines in multi-line descriptions
-					result += "\n" + descStyle.Render("     │")
-				}
-			}
-		}
-	*/
 
 	return result
 }
