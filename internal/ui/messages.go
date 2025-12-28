@@ -6,6 +6,8 @@ import "godo/internal/taskstore"
 type FormSubmittedMsg struct {
 	ModalType string
 	Data      map[string]string
+	TaskID    int // For edit operations on tasks
+	ProjectID int // For edit operations on projects
 }
 
 type FormCancelledMsg struct{}

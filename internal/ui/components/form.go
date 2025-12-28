@@ -79,3 +79,12 @@ func (f *Form) GetValues() map[string]string {
 	}
 	return result
 }
+
+func (f *Form) SetValue(label string, value string) {
+	for i := range f.fields {
+		if f.fields[i].Label == label {
+			f.fields[i].Value = value
+			break
+		}
+	}
+}

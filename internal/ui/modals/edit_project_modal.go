@@ -8,34 +8,36 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-type EditGitLinkModal struct {
-	form   *components.Form
-	width  int
-	height int
-	taskID int
+type EditProjectModal struct {
+	form      *components.Form
+	width     int
+	height    int
+	projectID int
 }
 
-func NewEditGitLinkModal(task *taskstore.Task, width, height int) *EditGitLinkModal {
+func NewEditProjectModal(project *taskstore.Project, width, height int) *EditProjectModal {
 	form := components.NewForm([]components.Field{
 		{Label: "Name", Type: "text"},
-		{Label: "Repository Path", Type: "text"},
-		{Label: "Git Link", Type: "text"},
-		{Label: "Branch", Type: "text"},
+		{Label: "Description", Type: "text"},
 	})
 
-	return &EditGitLinkModal{
-		form:   form,
-		width:  width,
-		height: height,
-		taskID: task.ID,
+	// Pre-fill the form with existing data
+	form.SetValue("Name", project.Name)
+	form.SetValue("Description", project.Description)
+
+	return &EditProjectModal{
+		form:      form,
+		width:     width,
+		height:    height,
+		projectID: project.ID,
 	}
 }
 
-func (m *EditGitLinkModal) Init() tea.Cmd {
+func (m *EditProjectModal) Init() tea.Cmd {
 	return nil
 }
 
-func (m *EditGitLinkModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *EditProjectModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -46,9 +48,9 @@ func (m *EditGitLinkModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			return m, func() tea.Msg {
 				return FormSubmittedMsg{
-					ModalType: "edit_git_link",
+					ModalType: "edit_project",
 					Data:      m.form.GetValues(),
-					TaskID:    m.taskID,
+					ProjectID: m.projectID,
 				}
 			}
 		default:
@@ -58,12 +60,12 @@ func (m *EditGitLinkModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *EditGitLinkModal) View() string {
+func (m *EditProjectModal) View() string {
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("4")).
 		Width(45).
-		Height(12).
+		Height(10).
 		Padding(1)
 
 	return style.Render(m.form.View())

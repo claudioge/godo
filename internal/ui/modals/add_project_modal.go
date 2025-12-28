@@ -1,41 +1,36 @@
 package modals
 
 import (
-	"godo/internal/taskstore"
 	"godo/internal/ui/components"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-type EditGitLinkModal struct {
+type AddProjectModal struct {
 	form   *components.Form
 	width  int
 	height int
-	taskID int
 }
 
-func NewEditGitLinkModal(task *taskstore.Task, width, height int) *EditGitLinkModal {
+func NewAddProjectModal(width, height int) *AddProjectModal {
 	form := components.NewForm([]components.Field{
 		{Label: "Name", Type: "text"},
-		{Label: "Repository Path", Type: "text"},
-		{Label: "Git Link", Type: "text"},
-		{Label: "Branch", Type: "text"},
+		{Label: "Description", Type: "text"},
 	})
 
-	return &EditGitLinkModal{
+	return &AddProjectModal{
 		form:   form,
 		width:  width,
 		height: height,
-		taskID: task.ID,
 	}
 }
 
-func (m *EditGitLinkModal) Init() tea.Cmd {
+func (m *AddProjectModal) Init() tea.Cmd {
 	return nil
 }
 
-func (m *EditGitLinkModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *AddProjectModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -46,9 +41,8 @@ func (m *EditGitLinkModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			return m, func() tea.Msg {
 				return FormSubmittedMsg{
-					ModalType: "edit_git_link",
+					ModalType: "add_project",
 					Data:      m.form.GetValues(),
-					TaskID:    m.taskID,
 				}
 			}
 		default:
@@ -58,12 +52,12 @@ func (m *EditGitLinkModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *EditGitLinkModal) View() string {
+func (m *AddProjectModal) View() string {
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("4")).
 		Width(45).
-		Height(12).
+		Height(10).
 		Padding(1)
 
 	return style.Render(m.form.View())

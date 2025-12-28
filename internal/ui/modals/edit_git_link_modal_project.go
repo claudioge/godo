@@ -8,14 +8,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-type EditGitLinkModal struct {
-	form   *components.Form
-	width  int
-	height int
-	taskID int
+type EditProjectGitLinkModal struct {
+	form      *components.Form
+	width     int
+	height    int
+	projectID int
 }
 
-func NewEditGitLinkModal(task *taskstore.Task, width, height int) *EditGitLinkModal {
+func NewEditProjectGitLinkModal(project *taskstore.Project, width, height int) *EditProjectGitLinkModal {
 	form := components.NewForm([]components.Field{
 		{Label: "Name", Type: "text"},
 		{Label: "Repository Path", Type: "text"},
@@ -23,19 +23,19 @@ func NewEditGitLinkModal(task *taskstore.Task, width, height int) *EditGitLinkMo
 		{Label: "Branch", Type: "text"},
 	})
 
-	return &EditGitLinkModal{
-		form:   form,
-		width:  width,
-		height: height,
-		taskID: task.ID,
+	return &EditProjectGitLinkModal{
+		form:      form,
+		width:     width,
+		height:    height,
+		projectID: project.ID,
 	}
 }
 
-func (m *EditGitLinkModal) Init() tea.Cmd {
+func (m *EditProjectGitLinkModal) Init() tea.Cmd {
 	return nil
 }
 
-func (m *EditGitLinkModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *EditProjectGitLinkModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -46,9 +46,9 @@ func (m *EditGitLinkModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			return m, func() tea.Msg {
 				return FormSubmittedMsg{
-					ModalType: "edit_git_link",
+					ModalType: "edit_project_git_link",
 					Data:      m.form.GetValues(),
-					TaskID:    m.taskID,
+					ProjectID: m.projectID,
 				}
 			}
 		default:
@@ -58,7 +58,7 @@ func (m *EditGitLinkModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *EditGitLinkModal) View() string {
+func (m *EditProjectGitLinkModal) View() string {
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("4")).

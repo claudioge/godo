@@ -1,41 +1,38 @@
 package modals
 
 import (
-	"godo/internal/taskstore"
 	"godo/internal/ui/components"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-type EditGitLinkModal struct {
-	form   *components.Form
-	width  int
-	height int
-	taskID int
+type AddTaskToProjectModal struct {
+	form      *components.Form
+	width     int
+	height    int
+	projectID int
 }
 
-func NewEditGitLinkModal(task *taskstore.Task, width, height int) *EditGitLinkModal {
+func NewAddTaskToProjectModal(projectID int, width, height int) *AddTaskToProjectModal {
 	form := components.NewForm([]components.Field{
-		{Label: "Name", Type: "text"},
-		{Label: "Repository Path", Type: "text"},
-		{Label: "Git Link", Type: "text"},
-		{Label: "Branch", Type: "text"},
+		{Label: "Title", Type: "text"},
+		{Label: "Description", Type: "textarea"},
 	})
 
-	return &EditGitLinkModal{
-		form:   form,
-		width:  width,
-		height: height,
-		taskID: task.ID,
+	return &AddTaskToProjectModal{
+		form:      form,
+		width:     width,
+		height:    height,
+		projectID: projectID,
 	}
 }
 
-func (m *EditGitLinkModal) Init() tea.Cmd {
+func (m *AddTaskToProjectModal) Init() tea.Cmd {
 	return nil
 }
 
-func (m *EditGitLinkModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *AddTaskToProjectModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -46,9 +43,9 @@ func (m *EditGitLinkModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			return m, func() tea.Msg {
 				return FormSubmittedMsg{
-					ModalType: "edit_git_link",
+					ModalType: "add_task_to_project",
 					Data:      m.form.GetValues(),
-					TaskID:    m.taskID,
+					ProjectID: m.projectID,
 				}
 			}
 		default:
@@ -58,12 +55,12 @@ func (m *EditGitLinkModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *EditGitLinkModal) View() string {
+func (m *AddTaskToProjectModal) View() string {
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("4")).
 		Width(45).
-		Height(12).
+		Height(10).
 		Padding(1)
 
 	return style.Render(m.form.View())

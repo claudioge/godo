@@ -11,25 +11,36 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Local message types to avoid import cycles
+// Local message types
 type (
-	ShowAddTaskModalMsg     struct{}
-	ShowEditGitLinkModalMsg struct{ TaskID int }
-	ShowEditTitleModalMsg   struct{ TaskID int }
-	ShowDeleteTaskModalMsg  struct{ TaskID int }
+	ShowAddTaskModalMsg       struct{}
+	ShowAddProjectModalMsg    struct{}
+	ShowEditProjectModalMsg   struct{ ProjectID int }
+	ShowDeleteProjectModalMsg struct{ ProjectID int }
+	ShowEditGitLinkModalMsg   struct{ TaskID int }
+	ShowEditTitleModalMsg     struct{ TaskID int }
+	ShowDeleteTaskModalMsg    struct{ TaskID int }
+	ShowAddTaskToProjectMsg   struct{ ProjectID int }
+	ShowEditProjectGitLinkMsg struct{ ProjectID int }
 )
 
+type DisplayItem struct {
+	Type      string // "project" or "task"
+	ProjectID int    // Set if Type == "project"
+	Task      *taskstore.Task
+}
+
 type TaskListScreen struct {
-	tasks              []taskstore.Task
-	orderedTasks       []taskstore.Task // The display order (by status groups)
-	cursor             int
-	width              int
-	height             int
-	message            string
-	messageTimer       time.Time
-	editBuffer         string
-	mode               Mode
-	taskStatusChanging bool
+	tasks        []taskstore.Task
+	projects     []taskstore.Project
+	displayItems []DisplayItem
+	cursor       int
+	width        int
+	height       int
+	message      string
+	messageTimer time.Time
+	editBuffer   string
+	mode         Mode
 }
 
 type Mode int
@@ -42,58 +53,81 @@ const (
 	ModeAddTask
 )
 
-func NewTaskListScreen(tasks []taskstore.Task) *TaskListScreen {
+func NewTaskListScreen(tasks []taskstore.Task, projects []taskstore.Project) *TaskListScreen {
 	screen := &TaskListScreen{
-		tasks:  tasks,
-		cursor: 0,
-		width:  80,
-		height: 20,
-		mode:   ModeNormal,
+		tasks:    tasks,
+		projects: projects,
+		cursor:   0,
+		width:    80,
+		height:   20,
+		mode:     ModeNormal,
 	}
-	// Build the ordered tasks list
-	screen.rebuildOrderedTasks()
+	screen.rebuildDisplayItems()
 	return screen
-}
-
-// rebuildOrderedTasks rebuilds the ordered task list based on status groups
-func (s *TaskListScreen) rebuildOrderedTasks() {
-	s.orderedTasks = []taskstore.Task{}
-
-	statusSections := []struct {
-		status taskstore.TaskStatus
-	}{
-		{taskstore.StatusInProgress},
-		{taskstore.StatusTodo},
-		{taskstore.StatusPaused},
-		{taskstore.StatusDone},
-	}
-
-	// Group tasks by status
-	tasksByStatus := make(map[taskstore.TaskStatus][]taskstore.Task)
-	for _, task := range s.tasks {
-		tasksByStatus[task.Status] = append(tasksByStatus[task.Status], task)
-	}
-
-	for _, section := range statusSections {
-		if tasks, ok := tasksByStatus[section.status]; ok {
-			s.orderedTasks = append(s.orderedTasks, tasks...)
-		}
-	}
-
-	// Ensure cursor is still valid
-	if s.cursor >= len(s.orderedTasks) && len(s.orderedTasks) > 0 {
-		s.cursor = len(s.orderedTasks) - 1
-	}
 }
 
 func (s *TaskListScreen) Init() tea.Cmd {
 	return nil
 }
 
+func (s *TaskListScreen) rebuildDisplayItems() {
+	s.displayItems = []DisplayItem{}
+
+	// Add all projects with their tasks
+	for _, project := range s.projects {
+		s.displayItems = append(s.displayItems, DisplayItem{
+			Type:      "project",
+			ProjectID: project.ID,
+		})
+
+		for _, task := range s.tasks {
+			for _, projID := range task.ProjectIDs {
+				if projID == project.ID {
+					taskCopy := task
+					s.displayItems = append(s.displayItems, DisplayItem{
+						Type: "task",
+						Task: &taskCopy,
+					})
+					break
+				}
+			}
+		}
+	}
+
+	// Add unassigned tasks
+	if len(s.getUnassignedTasks()) > 0 {
+		s.displayItems = append(s.displayItems, DisplayItem{
+			Type:      "project",
+			ProjectID: 0,
+		})
+
+		for _, task := range s.getUnassignedTasks() {
+			taskCopy := task
+			s.displayItems = append(s.displayItems, DisplayItem{
+				Type: "task",
+				Task: &taskCopy,
+			})
+		}
+	}
+
+	if s.cursor >= len(s.displayItems) && len(s.displayItems) > 0 {
+		s.cursor = len(s.displayItems) - 1
+	}
+}
+
+func (s *TaskListScreen) getUnassignedTasks() []taskstore.Task {
+	var unassigned []taskstore.Task
+	for _, task := range s.tasks {
+		if len(task.ProjectIDs) == 0 {
+			unassigned = append(unassigned, task)
+		}
+	}
+	return unassigned
+}
+
 func (s *TaskListScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	keyMsg, ok := msg.(tea.KeyMsg)
 	if !ok {
-		// Handle other message types like WindowSizeMsg
 		if windowMsg, ok := msg.(tea.WindowSizeMsg); ok {
 			s.width = windowMsg.Width
 			s.height = windowMsg.Height
@@ -101,7 +135,6 @@ func (s *TaskListScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return s, nil
 	}
 
-	// Handle different modes
 	switch s.mode {
 	case ModeNormal:
 		return s.handleNormalMode(keyMsg)
@@ -119,7 +152,7 @@ func (s *TaskListScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (s *TaskListScreen) handleNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "j", "down":
-		if s.cursor < len(s.orderedTasks)-1 {
+		if s.cursor < len(s.displayItems)-1 {
 			s.cursor++
 		}
 
@@ -129,65 +162,84 @@ func (s *TaskListScreen) handleNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "a":
+		// Add task to current project (if on a project) or create unassigned task
+		if item := s.getCurrentDisplayItem(); item != nil && item.Type == "project" {
+			return s, func() tea.Msg {
+				return ShowAddTaskToProjectMsg{ProjectID: item.ProjectID}
+			}
+		}
+		// Otherwise show regular add task modal
 		return s, func() tea.Msg { return ShowAddTaskModalMsg{} }
 
+	case "A":
+		return s, func() tea.Msg { return ShowAddProjectModalMsg{} }
+
 	case "e":
-		// Edit task title
-		s.mode = ModeEdit
-		if task := s.getCurrentTask(); task != nil {
-			s.editBuffer = task.Title
+		if item := s.getCurrentDisplayItem(); item != nil && item.Type == "task" && item.Task != nil {
+			s.mode = ModeEdit
+			s.editBuffer = item.Task.Title
 		}
 
 	case "g":
-		// Edit git link
-		if task := s.getCurrentTask(); task != nil {
-			return s, func() tea.Msg {
-				return ShowEditGitLinkModalMsg{TaskID: task.ID}
+		// Git links for both tasks and projects
+		if item := s.getCurrentDisplayItem(); item != nil {
+			if item.Type == "task" && item.Task != nil {
+				return s, func() tea.Msg {
+					return ShowEditGitLinkModalMsg{TaskID: item.Task.ID}
+				}
+			} else if item.Type == "project" && item.ProjectID != 0 {
+				return s, func() tea.Msg {
+					return ShowEditProjectGitLinkMsg{ProjectID: item.ProjectID}
+				}
 			}
 		}
 
 	case "o":
-		// Edit description
-		s.mode = ModeEditDescription
-		if task := s.getCurrentTask(); task != nil {
-			s.editBuffer = task.Description
+		if item := s.getCurrentDisplayItem(); item != nil && item.Type == "task" && item.Task != nil {
+			s.mode = ModeEditDescription
+			s.editBuffer = item.Task.Description
 		}
 
 	case "x":
-		// Delete task
-		if task := s.getCurrentTask(); task != nil {
-			return s, func() tea.Msg {
-				return ShowDeleteTaskModalMsg{TaskID: task.ID}
+		if item := s.getCurrentDisplayItem(); item != nil {
+			if item.Type == "task" && item.Task != nil {
+				return s, func() tea.Msg {
+					return ShowDeleteTaskModalMsg{TaskID: item.Task.ID}
+				}
+			} else if item.Type == "project" {
+				return s, func() tea.Msg {
+					return ShowDeleteProjectModalMsg{ProjectID: item.ProjectID}
+				}
 			}
 		}
 
-	// Status changes
 	case "t":
-		if task := s.getCurrentTask(); task != nil {
+		if item := s.getCurrentDisplayItem(); item != nil && item.Type == "task" && item.Task != nil {
+			task := item.Task
 			if task.Status == taskstore.StatusTodo {
 				s.changeTaskStatus(task.ID, taskstore.StatusInProgress)
 			} else {
 				s.changeTaskStatus(task.ID, taskstore.StatusTodo)
 			}
-			s.rebuildOrderedTasks()
+			s.rebuildDisplayItems()
 		}
 
 	case "d":
-		if task := s.getCurrentTask(); task != nil {
-			s.changeTaskStatus(task.ID, taskstore.StatusDone)
-			s.rebuildOrderedTasks()
+		if item := s.getCurrentDisplayItem(); item != nil && item.Type == "task" && item.Task != nil {
+			s.changeTaskStatus(item.Task.ID, taskstore.StatusDone)
+			s.rebuildDisplayItems()
 		}
 
 	case "p":
-		if task := s.getCurrentTask(); task != nil {
-			s.changeTaskStatus(task.ID, taskstore.StatusInProgress)
-			s.rebuildOrderedTasks()
+		if item := s.getCurrentDisplayItem(); item != nil && item.Type == "task" && item.Task != nil {
+			s.changeTaskStatus(item.Task.ID, taskstore.StatusInProgress)
+			s.rebuildDisplayItems()
 		}
 
 	case "s":
-		if task := s.getCurrentTask(); task != nil {
-			s.changeTaskStatus(task.ID, taskstore.StatusPaused)
-			s.rebuildOrderedTasks()
+		if item := s.getCurrentDisplayItem(); item != nil && item.Type == "task" && item.Task != nil {
+			s.changeTaskStatus(item.Task.ID, taskstore.StatusPaused)
+			s.rebuildDisplayItems()
 		}
 
 	case "ctrl+c", "q":
@@ -205,14 +257,13 @@ func (s *TaskListScreen) handleEditMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "enter":
 		if task := s.getCurrentTask(); task != nil && s.editBuffer != "" {
-			// Update the task in the main tasks array
 			for i := range s.tasks {
 				if s.tasks[i].ID == task.ID {
 					s.tasks[i].Title = s.editBuffer
 					break
 				}
 			}
-			s.rebuildOrderedTasks()
+			s.rebuildDisplayItems()
 			s.mode = ModeNormal
 			s.editBuffer = ""
 			s.setMessage(fmt.Sprintf("Task #%d title updated", task.ID))
@@ -242,14 +293,13 @@ func (s *TaskListScreen) handleEditDescriptionMode(msg tea.KeyMsg) (tea.Model, t
 
 	case "ctrl+s":
 		if task := s.getCurrentTask(); task != nil {
-			// Update the task in the main tasks array
 			for i := range s.tasks {
 				if s.tasks[i].ID == task.ID {
 					s.tasks[i].Description = s.editBuffer
 					break
 				}
 			}
-			s.rebuildOrderedTasks()
+			s.rebuildDisplayItems()
 			s.mode = ModeNormal
 			s.editBuffer = ""
 			s.setMessage(fmt.Sprintf("Task #%d description updated", task.ID))
@@ -281,7 +331,6 @@ func (s *TaskListScreen) handleEditGitLinkMode(msg tea.KeyMsg) (tea.Model, tea.C
 		s.editBuffer = ""
 
 	case "enter":
-		// TODO: Save git link
 		s.mode = ModeNormal
 		s.editBuffer = ""
 
@@ -302,72 +351,34 @@ func (s *TaskListScreen) handleEditGitLinkMode(msg tea.KeyMsg) (tea.Model, tea.C
 }
 
 func (s *TaskListScreen) View() string {
-	// If we're in a modal mode, don't render the task list
-	if len(s.orderedTasks) == 0 {
-		return "No tasks. Press 'a' to add one."
+	if len(s.displayItems) == 0 {
+		return "No tasks or projects. Press 'a' to add a task or 'A' to add a project."
 	}
 
 	var sections []string
 
-	// Header
 	header := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("4")).
-		Render("📋 Tasks")
+		Render("📋 Projects & Tasks")
 	sections = append(sections, header)
 
-	// Status sections in order
-	statusSections := []struct {
-		status taskstore.TaskStatus
-		emoji  string
-		color  lipgloss.Color
-	}{
-		{taskstore.StatusInProgress, "🔄", "4"},
-		{taskstore.StatusTodo, "⭕", "7"},
-		{taskstore.StatusPaused, "⏸️", "3"},
-		{taskstore.StatusDone, "✅", "2"},
-	}
-
-	// Group tasks by status
-	tasksByStatus := make(map[taskstore.TaskStatus][]taskstore.Task)
-	for _, task := range s.orderedTasks {
-		tasksByStatus[task.Status] = append(tasksByStatus[task.Status], task)
-	}
-
-	currentIndex := 0
-	var currentTask *taskstore.Task
-
-	for _, section := range statusSections {
-		if tasks := tasksByStatus[section.status]; len(tasks) > 0 {
-			sectionTitle := lipgloss.NewStyle().
-				Bold(true).
-				Foreground(section.color).
-				Margin(1, 0, 0, 0).
-				Render(fmt.Sprintf("%s %s", section.emoji, strings.ToUpper(string(section.status))))
-			sections = append(sections, sectionTitle)
-
-			for i, task := range tasks {
-				isSelected := currentIndex == s.cursor
-				sections = append(sections, s.renderTask(task, isSelected))
-
-				// Keep a pointer to the selected task
-				if isSelected {
-					currentTask = &tasks[i]
-				}
-				currentIndex++
-			}
+	for i, item := range s.displayItems {
+		isSelected := i == s.cursor
+		if item.Type == "project" {
+			sections = append(sections, s.renderProjectHeader(item.ProjectID, isSelected))
+		} else if item.Task != nil {
+			sections = append(sections, s.renderTask(*item.Task, isSelected))
 		}
 	}
 
-	// Mode indicator and edit buffer
 	if s.mode != ModeNormal {
 		sections = append(sections, s.renderEditMode())
 	}
 
-	// Render description - use currentTask which is guaranteed to be the selected one
 	descriptionSection := ""
-	if currentTask != nil {
-		descriptionSection = s.renderDescription(*currentTask)
+	if item := s.getCurrentDisplayItem(); item != nil && item.Type == "task" && item.Task != nil {
+		descriptionSection = s.renderDescription(*item.Task)
 	} else {
 		descriptionSection = "Select a task to view details"
 	}
@@ -394,18 +405,15 @@ func (s *TaskListScreen) View() string {
 		Height(s.height - 4)
 	descriptionWithBorder := descriptionStyle.Render(descriptionSection)
 
-	// Combine left and right panels
 	mainContent := lipgloss.JoinHorizontal(lipgloss.Top, leftSideWithBorder, descriptionWithBorder)
 
-	// Build footer with help text and message
 	var footerSections []string
 
 	helpText := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("8")).
-		Render("a: add • t/p/d/s: status • e: title • o: desc • g: git • x: delete • q: quit")
+		Render("a: task/project-task • A: project • e: title • o: desc • g: git-link • t/p/d/s: status • x: delete • q: quit")
 	footerSections = append(footerSections, helpText)
 
-	// Message
 	if s.message != "" && time.Since(s.messageTimer) < 3*time.Second {
 		msgStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("2")).
@@ -415,8 +423,45 @@ func (s *TaskListScreen) View() string {
 
 	footer := strings.Join(footerSections, "\n")
 
-	// Combine main content and footer vertically
 	return lipgloss.JoinVertical(lipgloss.Left, mainContent, footer)
+}
+
+func (s *TaskListScreen) renderProjectHeader(projectID int, isSelected bool) string {
+	var projectName string
+
+	if projectID == 0 {
+		projectName = "📁 Unassigned"
+	} else {
+		for _, proj := range s.projects {
+			if proj.ID == projectID {
+				projectName = fmt.Sprintf("📁 %s", proj.Name)
+				break
+			}
+		}
+	}
+
+	style := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("4")).
+		Margin(1, 0, 0, 0)
+
+	if isSelected {
+		style = style.Background(lipgloss.Color("4")).Foreground(lipgloss.Color("0"))
+	}
+
+	return style.Render(projectName)
+}
+
+func (s *TaskListScreen) renderTask(task taskstore.Task, isSelected bool) string {
+	statusEmoji := s.getStatusEmoji(task.Status)
+	taskText := fmt.Sprintf("  %s %s", statusEmoji, task.Title)
+
+	style := lipgloss.NewStyle().Padding(0, 1)
+	if isSelected {
+		style = style.Background(lipgloss.Color("4")).Foreground(lipgloss.Color("0")).Bold(true)
+	}
+
+	return style.Render(taskText)
 }
 
 func (s *TaskListScreen) getStatusEmoji(status taskstore.TaskStatus) string {
@@ -434,17 +479,7 @@ func (s *TaskListScreen) getStatusEmoji(status taskstore.TaskStatus) string {
 	}
 }
 
-func (s *TaskListScreen) renderTask(task taskstore.Task, isSelected bool) string {
-	style := lipgloss.NewStyle().Padding(0, 1)
-	if isSelected {
-		style = style.Background(lipgloss.Color("4")).Foreground(lipgloss.Color("0")).Bold(true)
-	}
-
-	return style.Render(fmt.Sprintf("%s", task.Title))
-}
-
 func (s *TaskListScreen) renderDescription(task taskstore.Task) string {
-	// Title section - top
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("4")).
@@ -452,7 +487,6 @@ func (s *TaskListScreen) renderDescription(task taskstore.Task) string {
 
 	titleText := titleStyle.Render(task.Title)
 
-	// Status section with emoji
 	statusEmoji := s.getStatusEmoji(task.Status)
 	statusStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("8")).
@@ -460,7 +494,6 @@ func (s *TaskListScreen) renderDescription(task taskstore.Task) string {
 
 	statusText := statusStyle.Render(fmt.Sprintf("%s %s", statusEmoji, strings.ToUpper(string(task.Status))))
 
-	// Description section - middle
 	var descText string
 	if task.Description != "" {
 		descStyle := lipgloss.NewStyle().
@@ -474,7 +507,29 @@ func (s *TaskListScreen) renderDescription(task taskstore.Task) string {
 		descText = descHeaderStyle.Render("Description") + "\n" + descStyle.Render(task.Description)
 	}
 
-	// Git links section - bottom
+	var projectText string
+	if len(task.ProjectIDs) > 0 {
+		projHeaderStyle := lipgloss.NewStyle().
+			Italic(true).
+			Foreground(lipgloss.Color("8")).
+			MarginTop(1)
+
+		projectText = projHeaderStyle.Render("Projects")
+
+		projStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("6")).
+			MarginLeft(2)
+
+		for _, projID := range task.ProjectIDs {
+			for _, proj := range s.projects {
+				if proj.ID == projID {
+					projectText += "\n" + projStyle.Render("→ "+proj.Name)
+					break
+				}
+			}
+		}
+	}
+
 	var gitText string
 	if len(task.GitLinks) > 0 {
 		gitHeaderStyle := lipgloss.NewStyle().
@@ -496,18 +551,20 @@ func (s *TaskListScreen) renderDescription(task taskstore.Task) string {
 		}
 	}
 
-	// Combine all sections
 	var result string
-	if descText != "" && gitText != "" {
-		result = lipgloss.JoinHorizontal(lipgloss.Top, titleText, " ", statusText) + "\n\n" + descText + "\n\n" + gitText
-	} else if descText != "" {
-		result = lipgloss.JoinHorizontal(lipgloss.Top, titleText, " ", statusText) + "\n\n" + descText
-	} else if gitText != "" {
-		result = lipgloss.JoinHorizontal(lipgloss.Top, titleText, " ", statusText) + "\n\n" + gitText
-	} else {
-		result = lipgloss.JoinHorizontal(lipgloss.Top, titleText, " ", statusText)
+	parts := []string{lipgloss.JoinHorizontal(lipgloss.Top, titleText, " ", statusText)}
+
+	if descText != "" {
+		parts = append(parts, descText)
+	}
+	if projectText != "" {
+		parts = append(parts, projectText)
+	}
+	if gitText != "" {
+		parts = append(parts, gitText)
 	}
 
+	result = strings.Join(parts, "\n\n")
 	return result
 }
 
@@ -554,12 +611,17 @@ func (s *TaskListScreen) renderEditMode() string {
 		helpText)
 }
 
+func (s *TaskListScreen) getCurrentDisplayItem() *DisplayItem {
+	if s.cursor >= 0 && s.cursor < len(s.displayItems) {
+		return &s.displayItems[s.cursor]
+	}
+	return nil
+}
+
 func (s *TaskListScreen) getCurrentTask() *taskstore.Task {
-	if s.cursor >= 0 && s.cursor < len(s.orderedTasks) {
-		// Find the task in the original tasks array by ID
-		orderedTask := s.orderedTasks[s.cursor]
+	if item := s.getCurrentDisplayItem(); item != nil && item.Type == "task" && item.Task != nil {
 		for i := range s.tasks {
-			if s.tasks[i].ID == orderedTask.ID {
+			if s.tasks[i].ID == item.Task.ID {
 				return &s.tasks[i]
 			}
 		}
@@ -584,5 +646,10 @@ func (s *TaskListScreen) setMessage(msg string) {
 
 func (s *TaskListScreen) UpdateTasks(tasks []taskstore.Task) {
 	s.tasks = tasks
-	s.rebuildOrderedTasks()
+	s.rebuildDisplayItems()
+}
+
+func (s *TaskListScreen) UpdateProjects(projects []taskstore.Project) {
+	s.projects = projects
+	s.rebuildDisplayItems()
 }
