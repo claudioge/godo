@@ -136,6 +136,32 @@ func UpdateTask(id int, updates map[string]any) error {
 	return fmt.Errorf("task with ID %d not found", id)
 }
 
+func LinkTaskToGit(id int, localPath string, name string, link string, branch string) error {
+	store, err := loadTasks()
+	if err != nil {
+		return err
+	}
+
+	gitLink := GitLink{
+		LocalPath: localPath,
+		Name:      name,
+		Link:      link,
+		Branch:    branch,
+	}
+
+	// check git link
+
+	for i, task := range store.Tasks {
+		if task.ID == id {
+			store.Tasks[i].GitLinks = append(store.Tasks[i].GitLinks, gitLink)
+
+			return saveTaskStore(store)
+		}
+	}
+
+	return fmt.Errorf("task with ID %d not found", id)
+}
+
 func GetTasks() ([]Task, error) {
 	store, err := loadTasks()
 	if err != nil {

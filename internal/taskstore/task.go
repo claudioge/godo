@@ -24,9 +24,16 @@ type Task struct {
 	TotalTime   time.Duration `json:"total_time"`
 	ParentID    *int          `json:"parent_id,omitempty"`
 	SubtaskIDs  []int         `json:"subtask_ids,omitempty"`
+	GitLinks    []GitLink     `json:"git_links,omitempty"`
 }
 
-// Maybe a struct to hold all tasks and metadata
+type GitLink struct {
+	LocalPath string `json:"local_path"`
+	Name      string `json:"name"`
+	Link      string `json:"link"`
+	Branch    string `json:"branch"`
+}
+
 type TaskStore struct {
 	Tasks        []Task `json:"tasks"`
 	NextID       int    `json:"next_id"`
