@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"fmt"
 	"godo/internal/taskstore"
 	"godo/internal/ui/modals"
 	"godo/internal/ui/screens"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -64,11 +66,27 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case screens.ShowDeleteTaskModalMsg:
+		for i, task := range a.tasks {
+			if task.ID == msg.TaskID {
+				a.tasks = append(a.tasks[:i], a.tasks[i+1:]...)
+				a.taskList.UpdateTasks(a.tasks)
+				if err := taskstore.DeleteTask(msg.TaskID); err != nil {
+					fmt.Printf("Error deleting task: %v\n", err)
+				}
+				break
+			}
+		}
+		return a, nil
+
 	case screens.ShowDeleteProjectModalMsg:
 		for i, project := range a.projects {
 			if project.ID == msg.ProjectID {
 				a.projects = append(a.projects[:i], a.projects[i+1:]...)
 				a.taskList.UpdateProjects(a.projects)
+				if err := taskstore.DeleteProject(msg.ProjectID); err != nil {
+					fmt.Printf("Error deleting project: %v\n", err)
+				}
 				break
 			}
 		}
@@ -132,11 +150,15 @@ func (a *App) handleFormSubmission(msg modals.FormSubmittedMsg) (tea.Model, tea.
 				Title:       title,
 				Description: description,
 				Status:      taskstore.StatusTodo,
+				CreatedAt:   time.Now(),
 				ProjectIDs:  []int{},
 				GitLinks:    []taskstore.GitLink{},
 			}
 			a.tasks = append(a.tasks, newTask)
 			a.taskList.UpdateTasks(a.tasks)
+			if err := taskstore.AddTask(title, description); err != nil {
+				fmt.Printf("Error saving task: %v\n", err)
+			}
 		}
 
 	case "add_project":
@@ -149,9 +171,13 @@ func (a *App) handleFormSubmission(msg modals.FormSubmittedMsg) (tea.Model, tea.
 				Name:        name,
 				Description: description,
 				GitLinks:    []taskstore.GitLink{},
+				CreatedAt:   time.Now(),
 			}
 			a.projects = append(a.projects, newProject)
 			a.taskList.UpdateProjects(a.projects)
+			if err := taskstore.AddProject(name, description); err != nil {
+				fmt.Printf("Error saving project: %v\n", err)
+			}
 		}
 
 	case "edit_git_link":
@@ -173,6 +199,9 @@ func (a *App) handleFormSubmission(msg modals.FormSubmittedMsg) (tea.Model, tea.
 				}
 			}
 			a.taskList.UpdateTasks(a.tasks)
+			if err := taskstore.LinkTaskToGit(msg.TaskID, path, name, link, branch); err != nil {
+				fmt.Printf("Error saving git link: %v\n", err)
+			}
 		}
 
 	case "edit_project_git_link":
@@ -194,6 +223,14 @@ func (a *App) handleFormSubmission(msg modals.FormSubmittedMsg) (tea.Model, tea.
 				}
 			}
 			a.taskList.UpdateProjects(a.projects)
+			if err := taskstore.AddGitLinkToProject(msg.ProjectID, taskstore.GitLink{
+				Name:      name,
+				LocalPath: path,
+				Link:      link,
+				Branch:    branch,
+			}); err != nil {
+				fmt.Printf("Error saving git link to project: %v\n", err)
+			}
 		}
 
 	case "add_task_to_project":
@@ -206,11 +243,18 @@ func (a *App) handleFormSubmission(msg modals.FormSubmittedMsg) (tea.Model, tea.
 				Title:       title,
 				Description: description,
 				Status:      taskstore.StatusTodo,
+				CreatedAt:   time.Now(),
 				ProjectIDs:  []int{msg.ProjectID},
 				GitLinks:    []taskstore.GitLink{},
 			}
 			a.tasks = append(a.tasks, newTask)
 			a.taskList.UpdateTasks(a.tasks)
+			if err := taskstore.AddTask(title, description); err != nil {
+				fmt.Printf("Error saving task: %v\n", err)
+			}
+			if err := taskstore.AddTaskToProject(newTask.ID, msg.ProjectID); err != nil {
+				fmt.Printf("Error linking task to project: %v\n", err)
+			}
 		}
 
 	case "edit_project":
@@ -226,6 +270,12 @@ func (a *App) handleFormSubmission(msg modals.FormSubmittedMsg) (tea.Model, tea.
 				}
 			}
 			a.taskList.UpdateProjects(a.projects)
+			if err := taskstore.UpdateProject(msg.ProjectID, map[string]any{
+				"name":        name,
+				"description": description,
+			}); err != nil {
+				fmt.Printf("Error saving project: %v\n", err)
+			}
 		}
 	}
 

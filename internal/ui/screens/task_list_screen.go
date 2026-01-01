@@ -260,6 +260,11 @@ func (s *TaskListScreen) handleEditMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			for i := range s.tasks {
 				if s.tasks[i].ID == task.ID {
 					s.tasks[i].Title = s.editBuffer
+					if err := taskstore.UpdateTask(task.ID, map[string]any{
+						"title": s.editBuffer,
+					}); err != nil {
+						fmt.Printf("Error saving task title: %v\n", err)
+					}
 					break
 				}
 			}
@@ -296,6 +301,11 @@ func (s *TaskListScreen) handleEditDescriptionMode(msg tea.KeyMsg) (tea.Model, t
 			for i := range s.tasks {
 				if s.tasks[i].ID == task.ID {
 					s.tasks[i].Description = s.editBuffer
+					if err := taskstore.UpdateTask(task.ID, map[string]any{
+						"description": s.editBuffer,
+					}); err != nil {
+						fmt.Printf("Error saving task description: %v\n", err)
+					}
 					break
 				}
 			}
@@ -633,6 +643,11 @@ func (s *TaskListScreen) changeTaskStatus(taskID int, newStatus taskstore.TaskSt
 	for i := range s.tasks {
 		if s.tasks[i].ID == taskID {
 			s.tasks[i].Status = newStatus
+			if err := taskstore.UpdateTask(taskID, map[string]any{
+				"status": newStatus,
+			}); err != nil {
+				fmt.Printf("Error saving task status: %v\n", err)
+			}
 			s.setMessage(fmt.Sprintf("Task #%d status changed to %s", taskID, newStatus))
 			break
 		}
