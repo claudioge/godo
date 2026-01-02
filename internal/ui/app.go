@@ -96,6 +96,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.modal = modals.NewAddTaskToProjectModal(msg.ProjectID, a.width, a.height)
 		return a, nil
 
+	case screens.ShowSelectProjectModalMsg:
+		a.modal = modals.NewSelectProjectModal(msg.TaskID, a.projects, a.width, a.height)
+		return a, nil
+
 	case screens.ShowEditProjectGitLinkMsg:
 		if project := a.findProject(msg.ProjectID); project != nil {
 			a.modal = modals.NewEditProjectGitLinkModal(project, a.width, a.height)
@@ -275,6 +279,33 @@ func (a *App) handleFormSubmission(msg modals.FormSubmittedMsg) (tea.Model, tea.
 				"description": description,
 			}); err != nil {
 				fmt.Printf("Error saving project: %v\n", err)
+			}
+		}
+
+	case "assign_task_to_project":
+		// Assign an existing task to an existing project
+		if msg.TaskID > 0 && msg.ProjectID > 0 {
+			if err := taskstore.AddTaskToProject(msg.TaskID, msg.ProjectID); err != nil {
+				fmt.Printf("Error assigning task to project: %v\n", err)
+			} else {
+				// Update the in-memory task
+				for i := range a.tasks {
+					if a.tasks[i].ID == msg.TaskID {
+						// Check if task is already in project
+						alreadyAssigned := false
+						for _, projID := range a.tasks[i].ProjectIDs {
+							if projID == msg.ProjectID {
+								alreadyAssigned = true
+								break
+							}
+						}
+						if !alreadyAssigned {
+							a.tasks[i].ProjectIDs = append(a.tasks[i].ProjectIDs, msg.ProjectID)
+						}
+						break
+					}
+				}
+				a.taskList.UpdateTasks(a.tasks)
 			}
 		}
 	}

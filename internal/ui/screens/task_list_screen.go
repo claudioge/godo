@@ -22,6 +22,7 @@ type (
 	ShowDeleteTaskModalMsg    struct{ TaskID int }
 	ShowAddTaskToProjectMsg   struct{ ProjectID int }
 	ShowEditProjectGitLinkMsg struct{ ProjectID int }
+	ShowSelectProjectModalMsg struct{ TaskID int }
 )
 
 type DisplayItem struct {
@@ -170,6 +171,14 @@ func (s *TaskListScreen) handleNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		// Otherwise show regular add task modal
 		return s, func() tea.Msg { return ShowAddTaskModalMsg{} }
+
+	case "m":
+		// Move existing task to a project
+		if item := s.getCurrentDisplayItem(); item != nil && item.Type == "task" && item.Task != nil {
+			return s, func() tea.Msg {
+				return ShowSelectProjectModalMsg{TaskID: item.Task.ID}
+			}
+		}
 
 	case "A":
 		return s, func() tea.Msg { return ShowAddProjectModalMsg{} }
@@ -421,7 +430,7 @@ func (s *TaskListScreen) View() string {
 
 	helpText := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("8")).
-		Render("a: task/project-task • A: project • e: title • o: desc • g: git-link • t/p/d/s: status • x: delete • q: quit")
+		Render("a: task/project-task • A: project • m: move to project • e: title • o: desc • g: git-link • t/p/d/s: status • x: delete • q: quit")
 	footerSections = append(footerSections, helpText)
 
 	if s.message != "" && time.Since(s.messageTimer) < 3*time.Second {

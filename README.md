@@ -1,7 +1,9 @@
 # godo
-*godo* is a command-line todo list manager that helps you track and organize tasks.
+
+_godo_ is a command-line todo list manager that helps you track and organize tasks.
 
 ## Features
+
 - **Interactive mode with vim-like keybindings** (default when running `godo`)
 - Add, complete, and remove todo items
 - List all outstanding tasks
@@ -14,26 +16,33 @@
 ## Quick Start
 
 ### Interactive Mode (Default)
+
 Simply run `godo` without any arguments to enter the interactive mode:
+
 ```bash
 godo
 ```
 
 ### Interactive Mode Keybindings
+
 - `j/k` or `↓/↑`: Navigate through tasks
-- `a`: Add a new task
+- `a`: Add a new task (or add existing task to project if on project)
+- `A`: Add a new project
+- `m`: Move existing task to a project
 - `e`: Edit task title
-- `o` or `d`: Edit task description
-- `space`: Change task status (cycle through todo/in-progress/done/paused)
-- `t`: Mark as todo
-- `s`: Start task (in-progress)
-- `p`: Pause task
-- `d`: Mark as done
-- `x` or `D`: Delete task
+- `o`: Edit task description
+- `g`: Add/edit git links
+- `t`: Toggle task status between todo and in-progress
+- `s`: Mark task as paused
+- `p`: Mark task as in-progress
+- `d`: Mark task as done
+- `x`: Delete task or project
 - `q` or `Ctrl+C`: Quit
 
 ### Command Line Mode
+
 You can also use godo with traditional command-line arguments:
+
 ```bash
 # Add a new task
 godo add "Task title" "Optional description"
