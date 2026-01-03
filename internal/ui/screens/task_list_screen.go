@@ -19,6 +19,7 @@ type (
 	ShowDeleteProjectModalMsg struct{ ProjectID int }
 	ShowEditGitLinkModalMsg   struct{ TaskID int }
 	ShowEditTitleModalMsg     struct{ TaskID int }
+	ShowEditDescriptionModalMsg struct{ TaskID int }
 	ShowDeleteTaskModalMsg    struct{ TaskID int }
 	ShowAddTaskToProjectMsg   struct{ ProjectID int }
 	ShowEditProjectGitLinkMsg struct{ ProjectID int }
@@ -48,8 +49,6 @@ type Mode int
 
 const (
 	ModeNormal Mode = iota
-	ModeEdit
-	ModeEditDescription
 	ModeEditGitLink
 	ModeAddTask
 )
@@ -139,10 +138,6 @@ func (s *TaskListScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch s.mode {
 	case ModeNormal:
 		return s.handleNormalMode(keyMsg)
-	case ModeEdit:
-		return s.handleEditMode(keyMsg)
-	case ModeEditDescription:
-		return s.handleEditDescriptionMode(keyMsg)
 	case ModeEditGitLink:
 		return s.handleEditGitLinkMode(keyMsg)
 	}
@@ -185,8 +180,9 @@ func (s *TaskListScreen) handleNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "e":
 		if item := s.getCurrentDisplayItem(); item != nil && item.Type == "task" && item.Task != nil {
-			s.mode = ModeEdit
-			s.editBuffer = item.Task.Title
+			return s, func() tea.Msg {
+				return ShowEditTitleModalMsg{TaskID: item.Task.ID}
+			}
 		}
 
 	case "g":
@@ -205,8 +201,9 @@ func (s *TaskListScreen) handleNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "o":
 		if item := s.getCurrentDisplayItem(); item != nil && item.Type == "task" && item.Task != nil {
-			s.mode = ModeEditDescription
-			s.editBuffer = item.Task.Description
+			return s, func() tea.Msg {
+				return ShowEditDescriptionModalMsg{TaskID: item.Task.ID}
+			}
 		}
 
 	case "x":
@@ -590,10 +587,6 @@ func (s *TaskListScreen) renderDescription(task taskstore.Task) string {
 func (s *TaskListScreen) renderEditMode() string {
 	var modeText string
 	switch s.mode {
-	case ModeEdit:
-		modeText = "EDIT TITLE"
-	case ModeEditDescription:
-		modeText = "EDIT DESCRIPTION"
 	case ModeEditGitLink:
 		modeText = "EDIT GIT LINK"
 	default:
@@ -610,11 +603,7 @@ func (s *TaskListScreen) renderEditMode() string {
 		Italic(true).
 		MarginLeft(1)
 
-	if s.mode == ModeEditDescription {
-		helpText = helpStyle.Render("ESC: cancel • Ctrl+S: save • Ctrl+U: clear")
-	} else {
-		helpText = helpStyle.Render("ESC: cancel • ENTER: save")
-	}
+	helpText = helpStyle.Render("ESC: cancel • ENTER: save")
 
 	inputStyle := lipgloss.NewStyle().
 		Background(lipgloss.Color("0")).

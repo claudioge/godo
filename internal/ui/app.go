@@ -66,6 +66,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case screens.ShowEditDescriptionModalMsg:
+		if task := a.findTask(msg.TaskID); task != nil {
+			a.modal = modals.NewEditDescriptionModal(msg.TaskID, task.Description, a.width, a.height)
+		}
+		return a, nil
+
 	case screens.ShowDeleteTaskModalMsg:
 		for i, task := range a.tasks {
 			if task.ID == msg.TaskID {
@@ -259,6 +265,42 @@ func (a *App) handleFormSubmission(msg modals.FormSubmittedMsg) (tea.Model, tea.
 			if err := taskstore.AddTaskToProject(newTask.ID, msg.ProjectID); err != nil {
 				fmt.Printf("Error linking task to project: %v\n", err)
 			}
+		}
+
+	case "edit_title":
+		title := msg.Data["Title"]
+
+		if title != "" {
+			for i := range a.tasks {
+				if a.tasks[i].ID == msg.TaskID {
+					a.tasks[i].Title = title
+					if err := taskstore.UpdateTask(msg.TaskID, map[string]any{
+						"title": title,
+					}); err != nil {
+						fmt.Printf("Error saving task title: %v\n", err)
+					}
+					break
+				}
+			}
+			a.taskList.UpdateTasks(a.tasks)
+		}
+
+	case "edit_description":
+		description := msg.Data["Description"]
+
+		if description != "" || true {
+			for i := range a.tasks {
+				if a.tasks[i].ID == msg.TaskID {
+					a.tasks[i].Description = description
+					if err := taskstore.UpdateTask(msg.TaskID, map[string]any{
+						"description": description,
+					}); err != nil {
+						fmt.Printf("Error saving task description: %v\n", err)
+					}
+					break
+				}
+			}
+			a.taskList.UpdateTasks(a.tasks)
 		}
 
 	case "edit_project":

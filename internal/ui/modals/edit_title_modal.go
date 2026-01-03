@@ -45,6 +45,7 @@ func (m *EditTitleModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return FormSubmittedMsg{
 					ModalType: "edit_title",
 					Data:      m.form.GetValues(),
+					TaskID:    m.task.ID,
 				}
 			}
 		default:
