@@ -55,7 +55,6 @@ func GetTaskStatus(status string) (TaskStatus, error) {
 	taskStatus := TaskStatus(status)
 	switch taskStatus {
 	case StatusTodo, StatusInProgress, StatusDone, StatusPaused:
-		fmt.Println("status is valid")
 		return taskStatus, nil
 	default:
 		return "", fmt.Errorf("invalid task status: %s", status)

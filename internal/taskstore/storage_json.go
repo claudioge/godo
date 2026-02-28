@@ -361,3 +361,21 @@ func RemoveGitLinkFromProject(projectID int, gitLinkName string) error {
 
 	return fmt.Errorf("project with ID %d not found", projectID)
 }
+
+func RemoveGitLinkFromTask(taskID int, gitLinkName string) error {
+	store, err := loadTasks()
+	if err != nil {
+		return err
+	}
+
+	for i, task := range store.Tasks {
+		if task.ID == taskID {
+			store.Tasks[i].GitLinks = slices.DeleteFunc(store.Tasks[i].GitLinks, func(gl GitLink) bool {
+				return gl.Name == gitLinkName
+			})
+			return saveTaskStore(store)
+		}
+	}
+
+	return fmt.Errorf("task with ID %d not found", taskID)
+}

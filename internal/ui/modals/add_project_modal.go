@@ -15,9 +15,10 @@ type AddProjectModal struct {
 
 func NewAddProjectModal(width, height int) *AddProjectModal {
 	form := components.NewForm([]components.Field{
-		{Label: "Name", Type: "text"},
-		{Label: "Description", Type: "text"},
+		{Label: "Name", Placeholder: "Enter project name..."},
+		{Label: "Description", Type: "textarea", Placeholder: "Enter description (optional)..."},
 	})
+	form.SetViewWidth(46)
 
 	return &AddProjectModal{
 		form:   form,
@@ -33,32 +34,44 @@ func (m *AddProjectModal) Init() tea.Cmd {
 func (m *AddProjectModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "escape":
+		submit, cancel := m.form.Update(msg)
+		if cancel {
 			return m, func() tea.Msg {
 				return FormCancelledMsg{}
 			}
-		case "enter":
+		}
+		if submit {
 			return m, func() tea.Msg {
 				return FormSubmittedMsg{
 					ModalType: "add_project",
 					Data:      m.form.GetValues(),
 				}
 			}
-		default:
-			m.form.Update(msg)
 		}
 	}
 	return m, nil
 }
 
 func (m *AddProjectModal) View() string {
+	formView := m.form.View()
+
+	helpText := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("8")).
+		Render("Tab: next field • ←→: move cursor • Enter: new line • Ctrl+Enter: save • Esc: cancel")
+
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("4")).
-		Width(45).
-		Height(10).
-		Padding(1)
+		BorderForeground(lipgloss.Color("5")).
+		Width(50).
+		Padding(1, 2)
 
-	return style.Render(m.form.View())
+	content := lipgloss.JoinVertical(lipgloss.Left,
+		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("5")).Render("Add New Project"),
+		"",
+		formView,
+		"",
+		helpText,
+	)
+
+	return style.Render(content)
 }

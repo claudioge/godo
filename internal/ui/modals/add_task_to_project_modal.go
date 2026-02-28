@@ -16,9 +16,10 @@ type AddTaskToProjectModal struct {
 
 func NewAddTaskToProjectModal(projectID int, width, height int) *AddTaskToProjectModal {
 	form := components.NewForm([]components.Field{
-		{Label: "Title", Type: "text"},
-		{Label: "Description", Type: "textarea"},
+		{Label: "Title", Placeholder: "Enter task title..."},
+		{Label: "Description", Type: "textarea", Placeholder: "Enter description (optional)..."},
 	})
+	form.SetViewWidth(46)
 
 	return &AddTaskToProjectModal{
 		form:      form,
@@ -35,12 +36,13 @@ func (m *AddTaskToProjectModal) Init() tea.Cmd {
 func (m *AddTaskToProjectModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "escape":
+		submit, cancel := m.form.Update(msg)
+		if cancel {
 			return m, func() tea.Msg {
 				return FormCancelledMsg{}
 			}
-		case "enter":
+		}
+		if submit {
 			return m, func() tea.Msg {
 				return FormSubmittedMsg{
 					ModalType: "add_task_to_project",
@@ -48,20 +50,31 @@ func (m *AddTaskToProjectModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					ProjectID: m.projectID,
 				}
 			}
-		default:
-			m.form.Update(msg)
 		}
 	}
 	return m, nil
 }
 
 func (m *AddTaskToProjectModal) View() string {
+	formView := m.form.View()
+
+	helpText := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("8")).
+		Render("Tab: next field • ←→: move cursor • Enter: new line • Ctrl+Enter: save • Esc: cancel")
+
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("4")).
-		Width(45).
-		Height(10).
-		Padding(1)
+		BorderForeground(lipgloss.Color("5")).
+		Width(50).
+		Padding(1, 2)
 
-	return style.Render(m.form.View())
+	content := lipgloss.JoinVertical(lipgloss.Left,
+		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("5")).Render("Add Task to Project"),
+		"",
+		formView,
+		"",
+		helpText,
+	)
+
+	return style.Render(content)
 }

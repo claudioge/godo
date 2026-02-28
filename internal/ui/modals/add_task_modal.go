@@ -15,9 +15,10 @@ type AddTaskModal struct {
 
 func NewAddTaskModal(width, height int) *AddTaskModal {
 	form := components.NewForm([]components.Field{
-		{Label: "Title", Type: "text"},
-		{Label: "Description", Type: "textarea"},
+		{Label: "Title", Placeholder: "Enter task title..."},
+		{Label: "Description", Type: "textarea", Placeholder: "Enter description (optional)..."},
 	})
+	form.SetViewWidth(46)
 
 	return &AddTaskModal{
 		form:   form,
@@ -33,32 +34,44 @@ func (m *AddTaskModal) Init() tea.Cmd {
 func (m *AddTaskModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "escape":
+		submit, cancel := m.form.Update(msg)
+		if cancel {
 			return m, func() tea.Msg {
 				return FormCancelledMsg{}
 			}
-		case "enter":
+		}
+		if submit {
 			return m, func() tea.Msg {
 				return FormSubmittedMsg{
 					ModalType: "add_task",
 					Data:      m.form.GetValues(),
 				}
 			}
-		default:
-			m.form.Update(msg)
 		}
 	}
 	return m, nil
 }
 
 func (m *AddTaskModal) View() string {
+	formView := m.form.View()
+
+	helpText := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("8")).
+		Render("Tab: next field • ←→: move cursor • Enter: new line • Ctrl+Enter: save • Esc: cancel")
+
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("4")).
-		Width(45).
-		Height(10).
-		Padding(1)
+		BorderForeground(lipgloss.Color("5")).
+		Width(50).
+		Padding(1, 2)
 
-	return style.Render(m.form.View())
+	content := lipgloss.JoinVertical(lipgloss.Left,
+		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("5")).Render("Add New Task"),
+		"",
+		formView,
+		"",
+		helpText,
+	)
+
+	return style.Render(content)
 }

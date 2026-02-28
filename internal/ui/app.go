@@ -2,9 +2,11 @@ package ui
 
 import (
 	"fmt"
+	"godo/internal/git"
 	"godo/internal/taskstore"
 	"godo/internal/ui/modals"
 	"godo/internal/ui/screens"
+	"slices"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -106,9 +108,93 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.modal = modals.NewSelectProjectModal(msg.TaskID, a.projects, a.width, a.height)
 		return a, nil
 
+	case screens.ShowRemoveTaskFromProjectMsg:
+		if err := taskstore.RemoveTaskFromProject(msg.TaskID, msg.ProjectID); err != nil {
+			fmt.Printf("Error removing task from project: %v\n", err)
+		} else {
+			for i := range a.tasks {
+				if a.tasks[i].ID == msg.TaskID {
+					a.tasks[i].ProjectIDs = slices.DeleteFunc(a.tasks[i].ProjectIDs, func(id int) bool {
+						return id == msg.ProjectID
+					})
+					break
+				}
+			}
+			a.taskList.UpdateTasks(a.tasks)
+		}
+		return a, nil
+
 	case screens.ShowEditProjectGitLinkMsg:
 		if project := a.findProject(msg.ProjectID); project != nil {
 			a.modal = modals.NewEditProjectGitLinkModal(project, a.width, a.height)
+		}
+		return a, nil
+
+	case screens.ShowSelectRepoModalMsg:
+		a.modal = modals.NewSelectRepoModal(msg.ProjectID, a.width, a.height)
+		return a, nil
+
+	case screens.ShowCreateBranchModalMsg:
+		task := a.findTask(msg.TaskID)
+		project := a.findProject(msg.ProjectID)
+		if task != nil && project != nil && len(project.GitLinks) > 0 {
+			a.modal = modals.NewCreateBranchModal(task, project, project.GitLinks[0], a.width, a.height)
+		}
+		return a, nil
+
+	case modals.BranchCreatedMsg:
+		project := a.findProject(msg.ProjectID)
+		if project != nil && len(project.GitLinks) > 0 {
+			gitLink := project.GitLinks[0]
+			if err := git.CreateBranch(gitLink.LocalPath, msg.BranchName); err != nil {
+				fmt.Printf("Error creating branch: %v\n", err)
+			} else {
+				for i := range a.tasks {
+					if a.tasks[i].ID == msg.TaskID {
+						a.tasks[i].Status = taskstore.StatusInProgress
+						break
+					}
+				}
+				a.taskList.UpdateTasks(a.tasks)
+				if err := taskstore.UpdateTask(msg.TaskID, map[string]any{
+					"status": taskstore.StatusInProgress,
+				}); err != nil {
+					fmt.Printf("Error updating task status: %v\n", err)
+				}
+			}
+		}
+		a.modal = nil
+		return a, nil
+
+	case screens.ShowDeleteTaskGitLinkMsg:
+		if err := taskstore.RemoveGitLinkFromTask(msg.TaskID, msg.LinkName); err != nil {
+			fmt.Printf("Error removing git link from task: %v\n", err)
+		} else {
+			for i := range a.tasks {
+				if a.tasks[i].ID == msg.TaskID {
+					a.tasks[i].GitLinks = slices.DeleteFunc(a.tasks[i].GitLinks, func(gl taskstore.GitLink) bool {
+						return gl.Name == msg.LinkName
+					})
+					break
+				}
+			}
+			a.taskList.UpdateTasks(a.tasks)
+		}
+		return a, nil
+
+	case screens.ShowDeleteProjectGitLinkMsg:
+		if err := taskstore.RemoveGitLinkFromProject(msg.ProjectID, msg.LinkName); err != nil {
+			fmt.Printf("Error removing git link from project: %v\n", err)
+		} else {
+			for i := range a.projects {
+				if a.projects[i].ID == msg.ProjectID {
+					a.projects[i].GitLinks = slices.DeleteFunc(a.projects[i].GitLinks, func(gl taskstore.GitLink) bool {
+						return gl.Name == msg.LinkName
+					})
+					break
+				}
+			}
+			a.taskList.UpdateProjects(a.projects)
 		}
 		return a, nil
 
@@ -259,9 +345,6 @@ func (a *App) handleFormSubmission(msg modals.FormSubmittedMsg) (tea.Model, tea.
 			}
 			a.tasks = append(a.tasks, newTask)
 			a.taskList.UpdateTasks(a.tasks)
-			if err := taskstore.AddTask(title, description); err != nil {
-				fmt.Printf("Error saving task: %v\n", err)
-			}
 			if err := taskstore.AddTaskToProject(newTask.ID, msg.ProjectID); err != nil {
 				fmt.Printf("Error linking task to project: %v\n", err)
 			}
