@@ -191,32 +191,101 @@ type FileChange struct {
 func ParseAIResponse(response string) ([]FileChange, error) {
 	var changes []FileChange
 
+	// Handle NO_CHANGES_NEEDED
+	if strings.Contains(response, "NO_CHANGES_NEEDED") {
+		return nil, nil
+	}
+
+	// Look for code blocks
 	sections := strings.Split(response, "```")
 	for i := 1; i < len(sections); i += 2 {
-		if i+1 >= len(sections) {
-			break
-		}
-
-		header := strings.TrimSpace(sections[i])
-		content := strings.TrimSpace(sections[i+1])
-
-		lines := strings.SplitN(header, "\n", 2)
-		if len(lines) < 2 {
+		block := strings.TrimSpace(sections[i])
+		if block == "" {
 			continue
 		}
 
-		pathLine := strings.TrimPrefix(lines[0], "FILE:")
-		path := strings.TrimSpace(pathLine)
+		// The block might start with a language identifier like 'go' or 'python'
+		lines := strings.Split(block, "\n")
+		if len(lines) > 0 {
+			firstLine := strings.TrimSpace(lines[0])
+			// If it's just a language name, skip it for parsing headers
+			if !strings.HasPrefix(firstLine, "FILE:") && !strings.Contains(firstLine, ":") && len(firstLine) < 10 {
+				lines = lines[1:]
+			}
+		}
 
-		if strings.HasPrefix(content, "CONTENT:") {
-			content = strings.TrimPrefix(content, "CONTENT:")
-			content = strings.TrimSpace(content)
+		var path string
+		var content strings.Builder
+		inContent := false
+
+		for _, line := range lines {
+			if strings.HasPrefix(line, "FILE:") {
+				path = strings.TrimSpace(strings.TrimPrefix(line, "FILE:"))
+				continue
+			}
+			if strings.HasPrefix(line, "CONTENT:") {
+				inContent = true
+				continue
+			}
+			if inContent {
+				content.WriteString(line)
+				content.WriteString("\n")
+			} else if path != "" && !inContent {
+				// If we have a path but haven't seen CONTENT: yet, 
+				// some AIs might just start the content.
+				// But according to our prompt, it should have CONTENT:
+				// Let's be lenient.
+				if strings.TrimSpace(line) != "" {
+					inContent = true
+					content.WriteString(line)
+					content.WriteString("\n")
+				}
+			}
 		}
 
 		if path != "" {
 			changes = append(changes, FileChange{
 				Path:    path,
-				Content: content,
+				Content: strings.TrimSpace(content.String()),
+				Action:  "create",
+			})
+		}
+	}
+
+	// If no changes found in backticks, try searching without them
+	if len(changes) == 0 {
+		lines := strings.Split(response, "\n")
+		var path string
+		var content strings.Builder
+		inContent := false
+
+		for _, line := range lines {
+			if strings.HasPrefix(line, "FILE:") {
+				if path != "" {
+					changes = append(changes, FileChange{
+						Path:    path,
+						Content: strings.TrimSpace(content.String()),
+						Action:  "create",
+					})
+					content.Reset()
+				}
+				path = strings.TrimSpace(strings.TrimPrefix(line, "FILE:"))
+				inContent = false
+				continue
+			}
+			if strings.HasPrefix(line, "CONTENT:") {
+				inContent = true
+				continue
+			}
+			if inContent {
+				content.WriteString(line)
+				content.WriteString("\n")
+			}
+		}
+		if path != "" {
+			changes = append(changes, FileChange{
+				Path:    path,
+				Content: strings.TrimSpace(content.String()),
 				Action:  "create",
 			})
 		}

@@ -36,6 +36,11 @@ func (m *AddTaskToProjectModal) Init() tea.Cmd {
 func (m *AddTaskToProjectModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if msg.String() == "esc" {
+			return m, func() tea.Msg {
+				return FormCancelledMsg{}
+			}
+		}
 		submit, cancel := m.form.Update(msg)
 		if cancel {
 			return m, func() tea.Msg {

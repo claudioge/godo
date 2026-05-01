@@ -14,29 +14,32 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-type AIModal struct {
-	task         *taskstore.Task
-	project      *taskstore.Project
-	gitLink      taskstore.GitLink
-	aiClient     *ai.Client
-	width        int
-	height       int
-	state        AIState
-	response     string
-	backupName   string
-	worktreePath string
-	branchName   string
-	error        string
-}
-
 type AIState int
 
 const (
 	AIStateConfirm AIState = iota
 	AIStateLoading
+	AIStateReview
 	AIStateResult
 	AIStateError
 )
+
+type AIModal struct {
+	task         *taskstore.Task
+	project      *taskstore.Project
+	gitLink      taskstore.GitLink
+	aiClient     *ai.Client
+	cfg          *config.Config
+	width        int
+	height       int
+	state        AIState
+	response     string
+	changes      []git.FileChange
+	backupName   string
+	worktreePath string
+	branchName   string
+	error        string
+}
 
 func NewAIModal(task *taskstore.Task, project *taskstore.Project, gitLink taskstore.GitLink, width, height int) *AIModal {
 	cfg, _ := config.Load()
@@ -49,6 +52,7 @@ func NewAIModal(task *taskstore.Task, project *taskstore.Project, gitLink taskst
 		project:    project,
 		gitLink:    gitLink,
 		aiClient:   aiClient,
+		cfg:        cfg,
 		width:      width,
 		height:     height,
 		state:      AIStateConfirm,
@@ -64,24 +68,30 @@ func (m *AIModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "escape":
+		case "esc", "q":
 			return m, func() tea.Msg {
 				return FormCancelledMsg{}
 			}
 
-		case "enter":
+		case "enter", "y":
 			if m.state == AIStateConfirm {
-				return m, m.runAIImplementation
-			}
+				worktreePath := ""
+				if m.cfg.Worktree.BasePath != "" {
+					worktreePath = filepath.Join(m.cfg.Worktree.BasePath, m.project.Name, m.branchName)
+				} else {
+					worktreePath = filepath.Join(filepath.Dir(m.gitLink.LocalPath), m.branchName)
+				}
 
-		case "y":
-			if m.state == AIStateConfirm {
-				return m, m.runAIImplementation
-			}
+				prompt := ai.BuildPrompt(m.task.Title, m.task.Description, m.gitLink.LocalPath)
 
-		case "u":
-			if m.state == AIStateResult {
-				return m, m.undoChanges
+				return m, func() tea.Msg {
+					return StartAIJobMsg{
+						TaskID:   m.task.ID,
+						Prompt:   prompt,
+						Worktree: worktreePath,
+						Branch:   m.branchName,
+					}
+				}
 			}
 
 		case "c":
@@ -98,7 +108,12 @@ func (m *AIModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *AIModal) runAIImplementation() tea.Msg {
 	m.state = AIStateLoading
 
-	worktreePath := filepath.Join(filepath.Dir(m.gitLink.LocalPath), m.branchName)
+	worktreePath := ""
+	if m.cfg.Worktree.BasePath != "" {
+		worktreePath = filepath.Join(m.cfg.Worktree.BasePath, m.project.Name, m.branchName)
+	} else {
+		worktreePath = filepath.Join(filepath.Dir(m.gitLink.LocalPath), m.branchName)
+	}
 
 	if err := git.CreateWorktree(m.gitLink.LocalPath, m.branchName, worktreePath); err != nil {
 		m.state = AIStateError
@@ -107,17 +122,15 @@ func (m *AIModal) runAIImplementation() tea.Msg {
 	}
 
 	m.worktreePath = worktreePath
-
 	m.aiClient.SetPaths(m.gitLink.LocalPath, worktreePath)
 
 	prompt := ai.BuildPrompt(m.task.Title, m.task.Description, m.gitLink.LocalPath)
-
 	m.backupName = fmt.Sprintf("%s-%d", m.branchName, m.task.ID)
 
 	response, err := m.aiClient.Generate(prompt)
 	if err != nil {
 		m.state = AIStateError
-		m.error = fmt.Sprintf("AI Error: %v\n\nMake sure opencode is installed and configured.\nRun: opencode models", err)
+		m.error = fmt.Sprintf("AI Error: %v", err)
 		return nil
 	}
 
@@ -131,12 +144,18 @@ func (m *AIModal) runAIImplementation() tea.Msg {
 	changes, err := git.ParseAIResponse(response)
 	if err != nil {
 		m.state = AIStateError
-		m.error = fmt.Sprintf("Could not parse AI response.\n\nThis usually means opencode needs configuration.\nResponse preview:\n%s", truncate(response, 500))
+		m.error = fmt.Sprintf("Could not parse AI response: %v", err)
 		return nil
 	}
 
+	m.changes = changes
+	m.state = AIStateReview
+	return nil
+}
+
+func (m *AIModal) applyChanges() tea.Msg {
 	var files []string
-	for _, c := range changes {
+	for _, c := range m.changes {
 		files = append(files, c.Path)
 	}
 
@@ -144,7 +163,7 @@ func (m *AIModal) runAIImplementation() tea.Msg {
 		m.error = fmt.Sprintf("Warning: failed to create backup: %v", err)
 	}
 
-	if err := git.ApplyChanges(m.worktreePath, changes); err != nil {
+	if err := git.ApplyChanges(m.worktreePath, m.changes); err != nil {
 		m.state = AIStateError
 		m.error = fmt.Sprintf("Failed to apply changes: %v", err)
 		return nil
@@ -193,12 +212,18 @@ func (m *AIModal) View() string {
 
 		repoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 		content = append(content, repoStyle.Render("Repository: "+m.gitLink.Name))
-		content = append(content, repoStyle.Render("Worktree: "+filepath.Join(filepath.Dir(m.gitLink.LocalPath), m.branchName)))
+
+		worktreePath := ""
+		if m.cfg.Worktree.BasePath != "" {
+			worktreePath = filepath.Join(m.cfg.Worktree.BasePath, m.project.Name, m.branchName)
+		} else {
+			worktreePath = filepath.Join(filepath.Dir(m.gitLink.LocalPath), m.branchName)
+		}
+		content = append(content, repoStyle.Render("Worktree: "+worktreePath))
 		content = append(content, "")
 
 		warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 		content = append(content, warnStyle.Render("This will create a new branch and worktree."))
-		content = append(content, warnStyle.Render("Use 'u' to undo changes after."))
 		content = append(content, "")
 
 		helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
@@ -211,7 +236,28 @@ func (m *AIModal) View() string {
 
 		spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 		loadingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
-		content = append(content, loadingStyle.Render(spinner[len(spinner)/2%len(spinner)]+" Connecting to AI and generating code..."))
+		content = append(content, loadingStyle.Render(spinner[0]+" Connecting to AI and generating code..."))
+
+	case AIStateReview:
+		headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
+		content = append(content, headerStyle.Render("Review Changes"))
+		content = append(content, "")
+
+		content = append(content, "The AI wants to modify/create the following files:")
+		content = append(content, "")
+
+		fileStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
+		for i, c := range m.changes {
+			if i > 10 {
+				content = append(content, "  ... and more")
+				break
+			}
+			content = append(content, "  • "+fileStyle.Render(c.Path))
+		}
+		content = append(content, "")
+
+		helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+		content = append(content, helpStyle.Render("'a' or Enter: apply • 'c' or Esc: cancel"))
 
 	case AIStateResult:
 		headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("2"))
@@ -222,22 +268,6 @@ func (m *AIModal) View() string {
 		content = append(content, successStyle.Render("Worktree created at: "+m.worktreePath))
 		content = append(content, successStyle.Render("Branch: "+m.branchName))
 		content = append(content, "")
-
-		if m.response != "" && !strings.Contains(m.response, "NO_CHANGES_NEEDED") {
-			content = append(content, "Generated code:")
-			content = append(content, "")
-
-			respStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-			respLines := strings.Split(m.response, "\n")
-			for i, line := range respLines {
-				if i > 15 {
-					content = append(content, respStyle.Render("... (truncated)"))
-					break
-				}
-				content = append(content, respStyle.Render(line))
-			}
-			content = append(content, "")
-		}
 
 		helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 		content = append(content, helpStyle.Render("'u': undo changes • 'c': close"))

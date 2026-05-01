@@ -33,7 +33,6 @@ type Task struct {
 	ParentID    *int          `json:"parent_id,omitempty"`
 	SubtaskIDs  []int         `json:"subtask_ids,omitempty"`
 	ProjectIDs  []int         `json:"project_ids,omitempty"`
-	GitLinks    []GitLink     `json:"git_links,omitempty"`
 }
 
 type GitLink struct {

@@ -12,14 +12,42 @@ import (
 	"godo/internal/config"
 )
 
+type Provider interface {
+	Generate(prompt string, worktreePath string) (string, error)
+}
+
 type Client struct {
 	cfg          *config.AIConfig
 	repoPath     string
 	worktreePath string
+	provider     Provider
 }
 
 func NewClient(cfg *config.AIConfig) *Client {
-	return &Client{cfg: cfg}
+	c := &Client{cfg: cfg}
+	c.initProvider()
+	return c
+}
+
+func (c *Client) initProvider() {
+	switch c.cfg.Provider {
+	case "opencode":
+		c.provider = &OpenCodeProvider{}
+	case "gemini":
+		c.provider = &GeminiCLIProvider{}
+	case "claudecode":
+		c.provider = &ClaudeCodeProvider{}
+	case "codex":
+		c.provider = &CodexProvider{}
+	case "groq":
+		c.provider = &GroqProvider{cfg: c.cfg}
+	case "ollama":
+		c.provider = &OllamaProvider{cfg: c.cfg}
+	case "openai":
+		c.provider = &OpenAIProvider{cfg: c.cfg}
+	default:
+		c.provider = &OpenCodeProvider{}
+	}
 }
 
 func (c *Client) SetPaths(repoPath, worktreePath string) {
@@ -28,27 +56,22 @@ func (c *Client) SetPaths(repoPath, worktreePath string) {
 }
 
 func (c *Client) Generate(prompt string) (string, error) {
-	switch c.cfg.Provider {
-	case "opencode":
-		return c.generateOpenCode(prompt)
-	case "groq":
-		return c.generateGroq(prompt)
-	case "ollama":
-		return c.generateOllama(prompt)
-	case "openai":
-		return c.generateOpenAI(prompt)
-	default:
-		return c.generateOpenCode(prompt)
+	if c.provider == nil {
+		return "", fmt.Errorf("AI provider not initialized")
 	}
+	return c.provider.Generate(prompt, c.worktreePath)
 }
 
-func (c *Client) generateOpenCode(prompt string) (string, error) {
-	ocPrompt := "Working in: " + c.worktreePath + ". " + prompt + ". " +
+// OpenCodeProvider uses the opencode CLI
+type OpenCodeProvider struct{}
+
+func (p *OpenCodeProvider) Generate(prompt string, worktreePath string) (string, error) {
+	ocPrompt := "Working in: " + worktreePath + ". " + prompt + ". " +
 		"Output files in format: FILE: /path/file.ext then CONTENT: <contents>. " +
 		"If no changes, say EXACTLY: NO_CHANGES_NEEDED"
 
 	cmd := exec.Command("opencode", "--print-logs", "run", "--", ocPrompt)
-	cmd.Dir = c.worktreePath
+	cmd.Dir = worktreePath
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -65,11 +88,82 @@ func (c *Client) generateOpenCode(prompt string) (string, error) {
 	return string(output), nil
 }
 
-func (c *Client) generateOllama(prompt string) (string, error) {
+// GeminiCLIProvider uses the geminicli CLI
+type GeminiCLIProvider struct{}
+
+func (p *GeminiCLIProvider) Generate(prompt string, worktreePath string) (string, error) {
+	cmd := exec.Command("gemini", "run", prompt)
+	cmd.Dir = worktreePath
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	output, err := cmd.Output()
+	if err != nil {
+		errMsg := string(stderr.Bytes())
+		if errMsg != "" {
+			return "", fmt.Errorf("gemini error: %s", errMsg)
+		}
+		return "", fmt.Errorf("gemini failed: %w", err)
+	}
+
+	return string(output), nil
+}
+
+// ClaudeCodeProvider uses the claudecode CLI
+type ClaudeCodeProvider struct{}
+
+func (p *ClaudeCodeProvider) Generate(prompt string, worktreePath string) (string, error) {
+	cmd := exec.Command("claudecode", "run", prompt)
+	cmd.Dir = worktreePath
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	output, err := cmd.Output()
+	if err != nil {
+		errMsg := string(stderr.Bytes())
+		if errMsg != "" {
+			return "", fmt.Errorf("claudecode error: %s", errMsg)
+		}
+		return "", fmt.Errorf("claudecode failed: %w", err)
+	}
+
+	return string(output), nil
+}
+
+// CodexProvider uses the codex CLI
+type CodexProvider struct{}
+
+func (p *CodexProvider) Generate(prompt string, worktreePath string) (string, error) {
+	cmd := exec.Command("codex", "run", prompt)
+	cmd.Dir = worktreePath
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	output, err := cmd.Output()
+	if err != nil {
+		errMsg := string(stderr.Bytes())
+		if errMsg != "" {
+			return "", fmt.Errorf("codex error: %s", errMsg)
+		}
+		return "", fmt.Errorf("codex failed: %w", err)
+	}
+
+	return string(output), nil
+}
+
+// OllamaProvider uses the Ollama API
+type OllamaProvider struct {
+	cfg *config.AIConfig
+}
+
+func (p *OllamaProvider) Generate(prompt string, worktreePath string) (string, error) {
 	url := "http://localhost:11434/api/generate"
 
 	reqBody := map[string]interface{}{
-		"model":  c.cfg.Model,
+		"model":  p.cfg.Model,
 		"prompt": prompt,
 		"stream": false,
 	}
@@ -106,7 +200,12 @@ func (c *Client) generateOllama(prompt string) (string, error) {
 	return genResp.Response, nil
 }
 
-func (c *Client) generateGroq(prompt string) (string, error) {
+// GroqProvider uses the Groq API
+type GroqProvider struct {
+	cfg *config.AIConfig
+}
+
+func (p *GroqProvider) Generate(prompt string, worktreePath string) (string, error) {
 	url := "https://api.groq.com/openai/v1/chat/completions"
 
 	type Message struct {
@@ -114,7 +213,7 @@ func (c *Client) generateGroq(prompt string) (string, error) {
 		Content string `json:"content"`
 	}
 
-	model := c.cfg.Model
+	model := p.cfg.Model
 	if model == "" {
 		model = "llama-3.1-70b-versatile"
 	}
@@ -124,7 +223,7 @@ func (c *Client) generateGroq(prompt string) (string, error) {
 		"messages": []Message{
 			{Role: "user", Content: prompt},
 		},
-		"temperature": c.cfg.Temperature,
+		"temperature": p.cfg.Temperature,
 	}
 
 	body, err := json.Marshal(reqBody)
@@ -138,7 +237,7 @@ func (c *Client) generateGroq(prompt string) (string, error) {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
+	req.Header.Set("Authorization", "Bearer "+p.cfg.APIKey)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -169,7 +268,12 @@ func (c *Client) generateGroq(prompt string) (string, error) {
 	return groqResp.Choices[0].Message.Content, nil
 }
 
-func (c *Client) generateOpenAI(prompt string) (string, error) {
+// OpenAIProvider uses the OpenAI API
+type OpenAIProvider struct {
+	cfg *config.AIConfig
+}
+
+func (p *OpenAIProvider) Generate(prompt string, worktreePath string) (string, error) {
 	url := "https://api.openai.com/v1/chat/completions"
 
 	type Message struct {
@@ -178,11 +282,11 @@ func (c *Client) generateOpenAI(prompt string) (string, error) {
 	}
 
 	reqBody := map[string]interface{}{
-		"model": c.cfg.Model,
+		"model": p.cfg.Model,
 		"messages": []Message{
 			{Role: "user", Content: prompt},
 		},
-		"temperature": c.cfg.Temperature,
+		"temperature": p.cfg.Temperature,
 	}
 
 	body, err := json.Marshal(reqBody)
@@ -196,7 +300,7 @@ func (c *Client) generateOpenAI(prompt string) (string, error) {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
+	req.Header.Set("Authorization", "Bearer "+p.cfg.APIKey)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -231,26 +335,26 @@ func BuildPrompt(taskTitle, taskDescription, repoPath string) string {
 	var b strings.Builder
 
 	b.WriteString("You are a helpful coding assistant. ")
-	b.WriteString("Generate code based on the following task.\n\n")
+	b.WriteString("Generate code based on the following task. ")
+	b.WriteString("Respond ONLY with the file content blocks.\n\n")
 
 	b.WriteString("## Task\n")
-	b.WriteString("Title: " + taskTitle + "\n\n")
+	b.WriteString("Title: " + taskTitle + "\n")
 
 	if taskDescription != "" {
-		b.WriteString("Description:\n" + taskDescription + "\n\n")
+		b.WriteString("Description: " + taskDescription + "\n")
 	}
 
-	b.WriteString("## Instructions\n")
-	b.WriteString("1. Create or modify the necessary files to implement this task\n")
-	b.WriteString("2. Output ONLY the file contents, no explanations\n")
-	b.WriteString("3. Use this format for each file:\n")
+	b.WriteString("\n## Instructions\n")
+	b.WriteString("1. Implement the task by creating or modifying files.\n")
+	b.WriteString("2. Use this EXACT format for each file:\n")
 	b.WriteString("```\n")
-	b.WriteString("FILE: /path/to/file.ext\n")
+	b.WriteString("FILE: path/to/file.ext\n")
 	b.WriteString("CONTENT:\n")
-	b.WriteString("<file contents here>\n")
-	b.WriteString("```\n\n")
-	b.WriteString("4. If no files need to be created/modified, respond with:\n")
-	b.WriteString("NO_CHANGES_NEEDED\n")
+	b.WriteString("<complete file content>\n")
+	b.WriteString("```\n")
+	b.WriteString("3. If no changes are needed, respond with EXACTLY: NO_CHANGES_NEEDED\n")
+	b.WriteString("4. Output ONLY the code blocks, no explanations, no chat.\n")
 
 	return b.String()
 }

@@ -2,16 +2,26 @@ package ui
 
 import (
 	"fmt"
+	"godo/internal/ai"
+	"godo/internal/config"
 	"godo/internal/git"
 	"godo/internal/taskstore"
 	"godo/internal/ui/modals"
 	"godo/internal/ui/screens"
 	"slices"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+type AIJob struct {
+	TaskID    int
+	Status    string
+	Message   string
+	StartTime time.Time
+}
 
 type App struct {
 	taskList *screens.TaskListScreen
@@ -20,6 +30,7 @@ type App struct {
 	height   int
 	tasks    []taskstore.Task
 	projects []taskstore.Project
+	aiJobs   map[int]*AIJob
 }
 
 func NewApp(tasks []taskstore.Task, projects []taskstore.Project) *App {
@@ -27,6 +38,7 @@ func NewApp(tasks []taskstore.Task, projects []taskstore.Project) *App {
 		taskList: screens.NewTaskListScreen(tasks, projects),
 		tasks:    tasks,
 		projects: projects,
+		aiJobs:   make(map[int]*AIJob),
 	}
 }
 
@@ -53,12 +65,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case screens.ShowEditProjectModalMsg:
 		if project := a.findProject(msg.ProjectID); project != nil {
 			a.modal = modals.NewEditProjectModal(project, a.width, a.height)
-		}
-		return a, nil
-
-	case screens.ShowEditGitLinkModalMsg:
-		if task := a.findTask(msg.TaskID); task != nil {
-			a.modal = modals.NewEditGitLinkModal(task, a.width, a.height)
 		}
 		return a, nil
 
@@ -177,22 +183,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.modal = nil
 		return a, nil
 
-	case screens.ShowDeleteTaskGitLinkMsg:
-		if err := taskstore.RemoveGitLinkFromTask(msg.TaskID, msg.LinkName); err != nil {
-			fmt.Printf("Error removing git link from task: %v\n", err)
-		} else {
-			for i := range a.tasks {
-				if a.tasks[i].ID == msg.TaskID {
-					a.tasks[i].GitLinks = slices.DeleteFunc(a.tasks[i].GitLinks, func(gl taskstore.GitLink) bool {
-						return gl.Name == msg.LinkName
-					})
-					break
-				}
-			}
-			a.taskList.UpdateTasks(a.tasks)
-		}
-		return a, nil
-
 	case screens.ShowDeleteProjectGitLinkMsg:
 		if err := taskstore.RemoveGitLinkFromProject(msg.ProjectID, msg.LinkName); err != nil {
 			fmt.Printf("Error removing git link from project: %v\n", err)
@@ -213,11 +203,36 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.modal = nil
 		return a, nil
 
+	case modals.StartAIJobMsg:
+		a.modal = nil
+		a.aiJobs[msg.TaskID] = &AIJob{
+			TaskID:    msg.TaskID,
+			Status:    "running",
+			Message:   "Starting AI Implementation...",
+			StartTime: time.Now(),
+		}
+		return a, a.runAIJob(msg)
+
+	case modals.AIJobStatusMsg:
+		if job, ok := a.aiJobs[msg.TaskID]; ok {
+			job.Status = msg.Status
+			job.Message = msg.Message
+			if msg.Status == "done" || msg.Status == "error" {
+				// Keep it for a while then remove? Or just mark as finished.
+				// For now, let's keep it so the user sees the result.
+			}
+		}
+		return a, nil
+
 	case modals.FormSubmittedMsg:
 		return a.handleFormSubmission(msg)
 
 	case tea.KeyMsg:
 		if a.modal != nil {
+			if msg.String() == "q" {
+				a.modal = nil
+				return a, nil
+			}
 			model, cmd := a.modal.Update(msg)
 			a.modal = model.(modals.Modal)
 			return a, cmd
@@ -233,16 +248,45 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (a *App) View() string {
 	base := a.taskList.View()
 
+	// Add background jobs status bar
+	var statusBar string
+	if len(a.aiJobs) > 0 {
+		var jobStrings []string
+		for id, job := range a.aiJobs {
+			statusIcon := "⏳"
+			color := "4"
+			if job.Status == "done" {
+				statusIcon = "✅"
+				color = "2"
+			} else if job.Status == "error" {
+				statusIcon = "❌"
+				color = "1"
+			}
+
+			style := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
+			jobStrings = append(jobStrings, style.Render(fmt.Sprintf("%s Task #%d: %s", statusIcon, id, job.Message)))
+		}
+
+		statusBarStyle := lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder(), true, false, false, false).
+			BorderForeground(lipgloss.Color("8")).
+			Width(a.width - 2).
+			Padding(0, 1)
+
+		statusBar = "\n" + statusBarStyle.Render(strings.Join(jobStrings, " | "))
+	}
+
 	if a.modal != nil {
-		return lipgloss.Place(
+		modalView := lipgloss.Place(
 			a.width, a.height,
 			lipgloss.Center, lipgloss.Center,
 			a.modal.View(),
 			lipgloss.WithWhitespaceChars(" "),
 		)
+		return modalView
 	}
 
-	return base
+	return base + statusBar
 }
 
 func (a *App) handleFormSubmission(msg modals.FormSubmittedMsg) (tea.Model, tea.Cmd) {
@@ -252,19 +296,14 @@ func (a *App) handleFormSubmission(msg modals.FormSubmittedMsg) (tea.Model, tea.
 		description := msg.Data["Description"]
 
 		if title != "" {
-			newTask := taskstore.Task{
-				ID:          a.getNextTaskID(),
-				Title:       title,
-				Description: description,
-				Status:      taskstore.StatusTodo,
-				CreatedAt:   time.Now(),
-				ProjectIDs:  []int{},
-				GitLinks:    []taskstore.GitLink{},
-			}
-			a.tasks = append(a.tasks, newTask)
-			a.taskList.UpdateTasks(a.tasks)
 			if err := taskstore.AddTask(title, description); err != nil {
 				fmt.Printf("Error saving task: %v\n", err)
+			} else {
+				// Re-load to get the correct ID
+				if tasks, err := taskstore.GetTasks(); err == nil {
+					a.tasks = tasks
+					a.taskList.UpdateTasks(a.tasks)
+				}
 			}
 		}
 
@@ -273,41 +312,14 @@ func (a *App) handleFormSubmission(msg modals.FormSubmittedMsg) (tea.Model, tea.
 		description := msg.Data["Description"]
 
 		if name != "" {
-			newProject := taskstore.Project{
-				ID:          a.getNextProjectID(),
-				Name:        name,
-				Description: description,
-				GitLinks:    []taskstore.GitLink{},
-				CreatedAt:   time.Now(),
-			}
-			a.projects = append(a.projects, newProject)
-			a.taskList.UpdateProjects(a.projects)
 			if err := taskstore.AddProject(name, description); err != nil {
 				fmt.Printf("Error saving project: %v\n", err)
-			}
-		}
-
-	case "edit_git_link":
-		name := msg.Data["Name"]
-		path := msg.Data["Repository Path"]
-		link := msg.Data["Git Link"]
-		branch := msg.Data["Branch"]
-
-		if task := a.findTask(msg.TaskID); task != nil {
-			for i := range a.tasks {
-				if a.tasks[i].ID == msg.TaskID {
-					a.tasks[i].GitLinks = append(a.tasks[i].GitLinks, taskstore.GitLink{
-						Name:      name,
-						LocalPath: path,
-						Link:      link,
-						Branch:    branch,
-					})
-					break
+			} else {
+				// Re-load to get the correct ID
+				if projects, err := taskstore.GetProjects(); err == nil {
+					a.projects = projects
+					a.taskList.UpdateProjects(a.projects)
 				}
-			}
-			a.taskList.UpdateTasks(a.tasks)
-			if err := taskstore.LinkTaskToGit(msg.TaskID, path, name, link, branch); err != nil {
-				fmt.Printf("Error saving git link: %v\n", err)
 			}
 		}
 
@@ -345,19 +357,22 @@ func (a *App) handleFormSubmission(msg modals.FormSubmittedMsg) (tea.Model, tea.
 		description := msg.Data["Description"]
 
 		if title != "" {
-			newTask := taskstore.Task{
-				ID:          a.getNextTaskID(),
-				Title:       title,
-				Description: description,
-				Status:      taskstore.StatusTodo,
-				CreatedAt:   time.Now(),
-				ProjectIDs:  []int{msg.ProjectID},
-				GitLinks:    []taskstore.GitLink{},
-			}
-			a.tasks = append(a.tasks, newTask)
-			a.taskList.UpdateTasks(a.tasks)
-			if err := taskstore.AddTaskToProject(newTask.ID, msg.ProjectID); err != nil {
-				fmt.Printf("Error linking task to project: %v\n", err)
+			// 1. Add task globally first
+			if err := taskstore.AddTask(title, description); err != nil {
+				fmt.Printf("Error saving task: %v\n", err)
+			} else {
+				// 2. Get the last added task (it will have the highest ID)
+				tasks, _ := taskstore.GetTasks()
+				if len(tasks) > 0 {
+					latestTask := tasks[len(tasks)-1]
+					// 3. Link it to the project
+					if err := taskstore.AddTaskToProject(latestTask.ID, msg.ProjectID); err != nil {
+						fmt.Printf("Error linking task to project: %v\n", err)
+					}
+				}
+				// 4. Reload everything
+				a.tasks, _ = taskstore.GetTasks()
+				a.taskList.UpdateTasks(a.tasks)
 			}
 		}
 
@@ -486,4 +501,67 @@ func (a *App) getNextProjectID() int {
 		}
 	}
 	return maxID + 1
+}
+
+func (a *App) runAIJob(msg modals.StartAIJobMsg) tea.Cmd {
+	return func() tea.Msg {
+		task := a.findTask(msg.TaskID)
+		if task == nil {
+			return modals.AIJobStatusMsg{TaskID: msg.TaskID, Status: "error", Message: "Task not found"}
+		}
+
+		if len(task.ProjectIDs) == 0 {
+			return modals.AIJobStatusMsg{TaskID: msg.TaskID, Status: "error", Message: "Task not assigned to any project"}
+		}
+
+		projectID := task.ProjectIDs[0]
+		project := a.findProject(projectID)
+		if project == nil || len(project.GitLinks) == 0 {
+			return modals.AIJobStatusMsg{TaskID: msg.TaskID, Status: "error", Message: "Project or Git link not found"}
+		}
+
+		gitLink := project.GitLinks[0]
+
+		// Ensure we're not running an interactive command
+		// All providers should be non-interactive.
+
+		// 1. Create worktree
+		if err := git.CreateWorktree(gitLink.LocalPath, msg.Branch, msg.Worktree); err != nil {
+			// If worktree already exists, maybe continue? 
+			// For now, fail if it exists and we didn't expect it.
+			if !strings.Contains(err.Error(), "already exists") {
+				return modals.AIJobStatusMsg{TaskID: msg.TaskID, Status: "error", Message: fmt.Sprintf("Worktree failed: %v", err)}
+			}
+		}
+
+		// 2. Contact AI
+		cfg, _ := config.Load()
+		aiClient := ai.NewClient(&cfg.AI)
+		aiClient.SetPaths(gitLink.LocalPath, msg.Worktree)
+
+		response, err := aiClient.Generate(msg.Prompt)
+		if err != nil {
+			return modals.AIJobStatusMsg{TaskID: msg.TaskID, Status: "error", Message: fmt.Sprintf("AI Generation failed: %v", err)}
+		}
+
+		if strings.Contains(response, "NO_CHANGES_NEEDED") {
+			return modals.AIJobStatusMsg{TaskID: msg.TaskID, Status: "done", Message: "No changes needed."}
+		}
+
+		// 3. Parse and Apply
+		changes, err := git.ParseAIResponse(response)
+		if err != nil {
+			return modals.AIJobStatusMsg{TaskID: msg.TaskID, Status: "error", Message: fmt.Sprintf("Parse failed: %v", err)}
+		}
+
+		if len(changes) == 0 {
+			return modals.AIJobStatusMsg{TaskID: msg.TaskID, Status: "done", Message: "AI suggested no changes."}
+		}
+
+		if err := git.ApplyChanges(msg.Worktree, changes); err != nil {
+			return modals.AIJobStatusMsg{TaskID: msg.TaskID, Status: "error", Message: fmt.Sprintf("Apply failed: %v", err)}
+		}
+
+		return modals.AIJobStatusMsg{TaskID: msg.TaskID, Status: "done", Message: fmt.Sprintf("Done! Applied %d changes to %s", len(changes), msg.Branch)}
+	}
 }

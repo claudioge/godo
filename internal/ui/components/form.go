@@ -92,7 +92,7 @@ func (f *Form) HandleKey(key string, runes []rune) (bool, bool) {
 			f.CursorPos = len(f.fields[f.focusedField].Value)
 		}
 
-	case "escape":
+	case "esc":
 		cancel = true
 
 	case "enter":

@@ -48,7 +48,7 @@ type (
 
 type DisplayItem struct {
 	Type      string // "project" or "task"
-	ProjectID int    // Set if Type == "project"
+	ProjectID int    // Set if Type == "project" OR if Type == "task" (the project it's listed under)
 	Task      *taskstore.Task
 }
 
@@ -104,8 +104,9 @@ func (s *TaskListScreen) rebuildDisplayItems() {
 				if projID == project.ID {
 					taskCopy := task
 					s.displayItems = append(s.displayItems, DisplayItem{
-						Type: "task",
-						Task: &taskCopy,
+						Type:      "task",
+						ProjectID: project.ID,
+						Task:      &taskCopy,
 					})
 					break
 				}
@@ -123,8 +124,9 @@ func (s *TaskListScreen) rebuildDisplayItems() {
 		for _, task := range s.getUnassignedTasks() {
 			taskCopy := task
 			s.displayItems = append(s.displayItems, DisplayItem{
-				Type: "task",
-				Task: &taskCopy,
+				Type:      "task",
+				ProjectID: 0,
+				Task:      &taskCopy,
 			})
 		}
 	}
@@ -257,13 +259,31 @@ func (s *TaskListScreen) handleNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "x":
 		if item := s.getCurrentDisplayItem(); item != nil {
 			if item.Type == "task" && item.Task != nil {
+				// If it's in a project, just remove from that project
+				if item.ProjectID != 0 {
+					return s, func() tea.Msg {
+						return ShowRemoveTaskFromProjectMsg{
+							TaskID:    item.Task.ID,
+							ProjectID: item.ProjectID,
+						}
+					}
+				}
+				// If it's unassigned, delete it entirely
 				return s, func() tea.Msg {
 					return ShowDeleteTaskModalMsg{TaskID: item.Task.ID}
 				}
-			} else if item.Type == "project" {
+			} else if item.Type == "project" && item.ProjectID != 0 {
 				return s, func() tea.Msg {
 					return ShowDeleteProjectModalMsg{ProjectID: item.ProjectID}
 				}
+			}
+		}
+
+	case "X":
+		// Shift+X to force delete a task entirely even if in a project
+		if item := s.getCurrentDisplayItem(); item != nil && item.Type == "task" && item.Task != nil {
+			return s, func() tea.Msg {
+				return ShowDeleteTaskModalMsg{TaskID: item.Task.ID}
 			}
 		}
 
@@ -320,7 +340,19 @@ func (s *TaskListScreen) handleNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "ctrl+c", "q":
+		if s.mode != ModeNormal {
+			s.mode = ModeNormal
+			s.editBuffer = ""
+			return s, nil
+		}
 		return s, tea.Quit
+
+	case "esc":
+		if s.mode != ModeNormal {
+			s.mode = ModeNormal
+			s.editBuffer = ""
+			return s, nil
+		}
 	}
 
 	return s, nil
@@ -328,7 +360,7 @@ func (s *TaskListScreen) handleNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (s *TaskListScreen) handleEditMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "escape":
+	case "esc":
 		s.mode = ModeNormal
 		s.editBuffer = ""
 
@@ -369,7 +401,7 @@ func (s *TaskListScreen) handleEditMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (s *TaskListScreen) handleEditDescriptionMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "escape":
+	case "esc":
 		s.mode = ModeNormal
 		s.editBuffer = ""
 
@@ -413,7 +445,7 @@ func (s *TaskListScreen) handleEditDescriptionMode(msg tea.KeyMsg) (tea.Model, t
 
 func (s *TaskListScreen) handleEditGitLinkMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "escape":
+	case "esc":
 		s.mode = ModeNormal
 		s.editBuffer = ""
 
@@ -772,7 +804,7 @@ func (s *TaskListScreen) renderProjectDescription(project taskstore.Project) str
 func (s *TaskListScreen) renderHelpText() string {
 	item := s.getCurrentDisplayItem()
 
-	baseHelp := "a: task/project • A: project • x: delete • q: quit"
+	baseHelp := "a: task • A: project • x: remove/del • X: force del • q: quit"
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 
 	if item == nil {
@@ -782,25 +814,20 @@ func (s *TaskListScreen) renderHelpText() string {
 	switch item.Type {
 	case "task":
 		if item.Task != nil {
-			task := item.Task
 			hasGit := false
-			if len(task.ProjectIDs) > 0 {
-				for _, projID := range task.ProjectIDs {
-					project := s.getProjectByID(projID)
-					if project != nil && len(project.GitLinks) > 0 && project.GitLinks[0].LocalPath != "" {
-						hasGit = true
-						break
-					}
+			if item.ProjectID != 0 {
+				project := s.getProjectByID(item.ProjectID)
+				if project != nil && len(project.GitLinks) > 0 && project.GitLinks[0].LocalPath != "" {
+					hasGit = true
 				}
 			}
 
-			help := "e: title • o: desc • m: move"
+			help := "e: title • o: desc • m: move/assign"
 			if hasGit {
 				help += " • t: start(branch) • i: implement(AI)"
 			} else {
-				help += " • t/p/s: status"
+				help += " • t/p/s/d: status"
 			}
-			help += " • d: done"
 			return helpStyle.Render(baseHelp + " • " + help)
 		}
 
@@ -817,7 +844,7 @@ func (s *TaskListScreen) renderHelpText() string {
 			} else {
 				help += " • g/G: add git"
 			}
-			help += " • e: edit • m: unassign"
+			help += " • e: edit"
 			return helpStyle.Render(baseHelp + " • " + help)
 		}
 	}

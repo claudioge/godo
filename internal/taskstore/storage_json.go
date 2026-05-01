@@ -104,7 +104,6 @@ func AddTask(title string, description string) error {
 		Status:      StatusTodo,
 		CreatedAt:   time.Now(),
 		ProjectIDs:  []int{},
-		GitLinks:    []GitLink{},
 	}
 
 	store.Tasks = append(store.Tasks, task)
@@ -158,29 +157,6 @@ func UpdateTask(id int, updates map[string]any) error {
 				store.Tasks[i].StartedAt = &startedAt
 			}
 
-			return saveTaskStore(store)
-		}
-	}
-
-	return fmt.Errorf("task with ID %d not found", id)
-}
-
-func LinkTaskToGit(id int, localPath string, name string, link string, branch string) error {
-	store, err := loadTasks()
-	if err != nil {
-		return err
-	}
-
-	gitLink := GitLink{
-		LocalPath: localPath,
-		Name:      name,
-		Link:      link,
-		Branch:    branch,
-	}
-
-	for i, task := range store.Tasks {
-		if task.ID == id {
-			store.Tasks[i].GitLinks = append(store.Tasks[i].GitLinks, gitLink)
 			return saveTaskStore(store)
 		}
 	}
@@ -360,22 +336,4 @@ func RemoveGitLinkFromProject(projectID int, gitLinkName string) error {
 	}
 
 	return fmt.Errorf("project with ID %d not found", projectID)
-}
-
-func RemoveGitLinkFromTask(taskID int, gitLinkName string) error {
-	store, err := loadTasks()
-	if err != nil {
-		return err
-	}
-
-	for i, task := range store.Tasks {
-		if task.ID == taskID {
-			store.Tasks[i].GitLinks = slices.DeleteFunc(store.Tasks[i].GitLinks, func(gl GitLink) bool {
-				return gl.Name == gitLinkName
-			})
-			return saveTaskStore(store)
-		}
-	}
-
-	return fmt.Errorf("task with ID %d not found", taskID)
 }

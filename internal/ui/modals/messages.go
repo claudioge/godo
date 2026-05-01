@@ -12,6 +12,22 @@ type FormSubmittedMsg struct {
 
 type FormCancelledMsg struct{}
 
+type StartAIJobMsg struct {
+	TaskID   int
+	Prompt   string
+	Worktree string
+	Branch   string
+}
+
+type AIJobStatusMsg struct {
+	TaskID  int
+	Status  string // "starting", "running", "done", "error"
+	Message string
+	Error   error
+}
+
 // Ensure compatibility with tea.Model
 var _ tea.Msg = FormSubmittedMsg{}
 var _ tea.Msg = FormCancelledMsg{}
+var _ tea.Msg = StartAIJobMsg{}
+var _ tea.Msg = AIJobStatusMsg{}

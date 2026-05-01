@@ -35,7 +35,7 @@ func (m *SelectRepoModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "escape":
+		case "esc":
 			return m, func() tea.Msg {
 				return FormCancelledMsg{}
 			}
