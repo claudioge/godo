@@ -142,6 +142,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case screens.ShowAIModalMsg:
+		task := a.findTask(msg.TaskID)
+		if task != nil && len(task.ProjectIDs) > 0 {
+			projectID := task.ProjectIDs[0]
+			project := a.findProject(projectID)
+			if project != nil && len(project.GitLinks) > 0 && project.GitLinks[0].LocalPath != "" {
+				a.modal = modals.NewAIModal(task, project, project.GitLinks[0], a.width, a.height)
+			}
+		}
+		return a, nil
+
 	case modals.BranchCreatedMsg:
 		project := a.findProject(msg.ProjectID)
 		if project != nil && len(project.GitLinks) > 0 {

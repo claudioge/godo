@@ -41,6 +41,9 @@ type (
 		TaskID    int
 		ProjectID int
 	}
+	ShowAIModalMsg struct {
+		TaskID int
+	}
 )
 
 type DisplayItem struct {
@@ -300,6 +303,20 @@ func (s *TaskListScreen) handleNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if item := s.getCurrentDisplayItem(); item != nil && item.Type == "task" && item.Task != nil {
 			s.changeTaskStatus(item.Task.ID, taskstore.StatusPaused)
 			s.rebuildDisplayItems()
+		}
+
+	case "i":
+		if item := s.getCurrentDisplayItem(); item != nil && item.Type == "task" && item.Task != nil {
+			task := item.Task
+			if len(task.ProjectIDs) > 0 {
+				projectID := task.ProjectIDs[0]
+				project := s.getProjectByID(projectID)
+				if project != nil && len(project.GitLinks) > 0 && project.GitLinks[0].LocalPath != "" {
+					return s, func() tea.Msg {
+						return ShowAIModalMsg{TaskID: task.ID}
+					}
+				}
+			}
 		}
 
 	case "ctrl+c", "q":
@@ -779,7 +796,7 @@ func (s *TaskListScreen) renderHelpText() string {
 
 			help := "e: title • o: desc • m: move"
 			if hasGit {
-				help += " • t: start(branch)"
+				help += " • t: start(branch) • i: implement(AI)"
 			} else {
 				help += " • t/p/s: status"
 			}
